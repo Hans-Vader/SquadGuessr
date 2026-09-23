@@ -59,6 +59,7 @@ Beamer (watch) ┘                                     │
 | `server/validate.js` | Validierung aller Client-Eingaben (Name, Settings, Guesses, Antworten). |
 | `server/index.js` | `ws`-Server, Verbindungs-Handling, Code-Vergabe, Timer, Aufräumen. Ruft `session.js` auf. |
 | `server/*.test.js` | `node --test` für `scoring.js` und `session.js`. |
+| `Dockerfile`, `docker-compose.yml`, `docker/nginx.conf.template`, `.dockerignore` | Hosting per Docker Compose (siehe Deployment). |
 | `src/js/multiplayer.js` | Klasse `Multiplayer` (`App.mp`): WebSocket, Reconnect, Lobby, Runden-/Reveal-/Final-Rendering, Watch-Modus. |
 | `src/components/lobby/lobby.html`, `lobby.scss` | Namenseingabe, Erstellen/Beitreten, Lobby mit Code, QR, Spielerliste, Host-Einstellungen. |
 | `src/i18n/en.json` | Neue Texte unter `mp`. `zh.json` bleibt unverändert – i18next fällt per `fallbackLng: "en"` auf Englisch zurück. |
@@ -182,23 +183,51 @@ Derselbe Client mit `body.watch-mode`, ohne Eingaben:
 - `qrcode` (Client, Rendering in ein `<canvas>`)
 - `ws` (Server)
 
-## Deployment
+## Deployment (Docker)
 
-- nginx, im bestehenden `server`-Block der Domain:
+Auf dem VPS läuft bereits ein Reverse-Proxy mit TLS. Compose stellt nur einen lokalen HTTP-Port bereit, auf den dieser Proxy weiterleitet.
 
-```nginx
-location = /mp {
-    proxy_pass http://127.0.0.1:3001;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 3600s;
-}
+```
+Internet ──TLS──► bestehender Reverse-Proxy ──http──► web (nginx, :80 → 127.0.0.1:${WEB_PORT})
+                                                      ├─ /        → statisches dist/
+                                                      ├─ /mp      → mp:3001 (WebSocket)
+                                                      └─ /api/    → ${API_URL} (SquadCalc-API)
+                                                     mp (node server/index.js, nur internes Netz)
 ```
 
-- Prozess: `pm2 start server/index.js --name squadguessr-ws` (oder eine systemd-Unit).
-- Wie im Dev-Proxy braucht auch der eigene Host ein Reverse-Proxy für `/api/v2/` auf squadcalc.app, damit Bilder und Guesses laden. Das ist Voraussetzung für den Fork-Betrieb überhaupt und nicht Teil dieses Features.
-- Der Server sendet alle 30 s Pings (`ws`-Heartbeat), damit tote Verbindungen erkannt und nginx-Timeouts vermieden werden.
+### Dateien
+
+| Datei | Zweck |
+|---|---|
+| `Dockerfile` | Multi-Stage: `build` (`node:20-alpine`, `npm ci`, `npm run build`), Ziel `web` (`nginx:1.27-alpine` + `dist/` + Config-Template), Ziel `mp` (`node:20-alpine`, `npm ci --omit=dev`, nur `server/`, `src/js/scoring.js`, `src/js/data/maps.js`, läuft als User `node`) |
+| `docker/nginx.conf.template` | nginx-Site; das offizielle Image ersetzt beim Start `${API_URL}` und `${API_KEY}` per `envsubst` (nur gesetzte Variablen, nginx-Variablen wie `$http_upgrade` bleiben erhalten) |
+| `docker-compose.yml` | Services `web` und `mp`, beide `restart: unless-stopped`; nur `web` veröffentlicht einen Port |
+| `.dockerignore` | `node_modules`, `dist`, `.git`, `.env`, `docs`, `.idea` |
+
+### Konfiguration (`.env` neben `docker-compose.yml`, von Compose automatisch gelesen)
+
+| Variable | Default | Bedeutung |
+|---|---|---|
+| `WEB_BIND` | `127.0.0.1` | Bind-Adresse des veröffentlichten Ports. `0.0.0.0`, wenn der Reverse-Proxy auf einem anderen Host läuft. |
+| `WEB_PORT` | `8080` | Port, auf den der Reverse-Proxy zeigt |
+| `API_URL` | `https://squadcalc.app` | Ziel für `/api/` (ohne Slash am Ende) |
+| `API_KEY` | leer | Wird als `X-API-Key` mitgeschickt; leer = Header entfällt |
+| `SEARCH_ENGINES` | `false` | Build-Argument für `robots.txt` (wie in der Webpack-Config) |
+
+### nginx im `web`-Container
+
+- `/`: `try_files $uri $uri/ /index.html`.
+- `location = /mp`: `proxy_pass http://mp:3001`, HTTP/1.1, `Upgrade`/`Connection`-Header über `map $http_upgrade $connection_upgrade`, `proxy_read_timeout 3600s`.
+- `location /api/`: `proxy_pass ${API_URL}` (Pfad bleibt erhalten, `Host` wird wie beim Dev-Proxy `changeOrigin` zum Ziel-Host), `proxy_ssl_server_name on`, `proxy_set_header X-API-Key "${API_KEY}"`.
+
+### Anforderungen an den bestehenden Reverse-Proxy
+
+- Leitet die Domain auf `http://127.0.0.1:${WEB_PORT}` weiter.
+- Muss WebSocket-Upgrades für `/mp` durchreichen (Caddy und Traefik tun das automatisch; nginx braucht `Upgrade`/`Connection`-Header; bei Nginx Proxy Manager „Websockets Support“ aktivieren) und ein Idle-Timeout ≥ 60 s haben. Der Server pingt alle 30 s.
+
+### Risiko
+
+Ob die SquadCalc-API Anfragen eines fremden Hosts ohne `API_KEY` beantwortet, liegt nicht in unserer Hand. Die Abnahme prüft das ausdrücklich (`/api/v2/get/squadGuess?nb=3` über den Container).
 
 ## Tests
 
