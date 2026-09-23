@@ -211,7 +211,7 @@ Internet ──TLS──► bestehender Reverse-Proxy ──http──► web (n
 |---|---|---|
 | `WEB_BIND` | `127.0.0.1` | Bind-Adresse des veröffentlichten Ports. `0.0.0.0`, wenn der Reverse-Proxy auf einem anderen Host läuft. |
 | `WEB_PORT` | `8080` | Port, auf den der Reverse-Proxy zeigt |
-| `API_URL` | `https://squadcalc.app` | Ziel für `/api/` (ohne Slash am Ende) |
+| `API_URL` | `https://squadguessr.app` | Ziel für `/api/` (ohne Slash am Ende) |
 | `API_KEY` | leer | Wird als `X-API-Key` mitgeschickt; leer = Header entfällt |
 | `SEARCH_ENGINES` | `false` | Build-Argument für `robots.txt` (wie in der Webpack-Config) |
 
@@ -226,9 +226,9 @@ Internet ──TLS──► bestehender Reverse-Proxy ──http──► web (n
 - Leitet die Domain auf `http://127.0.0.1:${WEB_PORT}` weiter.
 - Muss WebSocket-Upgrades für `/mp` durchreichen (Caddy und Traefik tun das automatisch; nginx braucht `Upgrade`/`Connection`-Header; bei Nginx Proxy Manager „Websockets Support“ aktivieren) und ein Idle-Timeout ≥ 60 s haben. Der Server pingt alle 30 s.
 
-### Risiko
+### API-Ziel
 
-Ob die SquadCalc-API Anfragen eines fremden Hosts ohne `API_KEY` beantwortet, liegt nicht in unserer Hand. Die Abnahme prüft das ausdrücklich (`/api/v2/get/squadGuess?nb=3` über den Container).
+Guesses und Bilder liefert `https://squadguessr.app/api/v2/` ohne Key (geprüft am 2026-09-23). `https://squadcalc.app` beantwortet `/api/v2/get/squadGuess` mit `403 Unauthorized`, Bilder dagegen mit 200; deshalb ist squadguessr.app der Default.
 
 ## Tests
 

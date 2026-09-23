@@ -157,6 +157,8 @@ body.mp-host {
 // in-game ranking must leave room for the host's NEXT button
 
 #rightSide .mp-ranking {
+    // big real hint images would otherwise squeeze the list to nothing in the flex column
+    flex-shrink: 0;
     margin: 0.5em auto;
     max-height: 25vh;
     overflow-y: auto;

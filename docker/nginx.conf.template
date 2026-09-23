@@ -21,7 +21,7 @@ server {
         proxy_read_timeout 3600s;
     }
 
-    # guesses and images come from the SquadCalc API (like the webpack dev proxy)
+    # guesses and images come from the SquadGuessr API (like the webpack dev proxy)
     location /api/ {
         proxy_pass ${API_URL};
         proxy_ssl_server_name on;

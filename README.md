@@ -81,7 +81,7 @@ docker compose up -d --build
 |---|---|---|
 | `WEB_BIND` | `127.0.0.1` | use `0.0.0.0` if the reverse proxy runs on another host |
 | `WEB_PORT` | `8080` | point your reverse proxy here |
-| `API_URL` | `https://squadcalc.app` | upstream for `/api/` (guesses and images) |
+| `API_URL` | `https://squadguessr.app` | upstream for `/api/` (guesses and images) |
 | `API_KEY` | empty | sent as `X-API-Key` if set |
 | `SEARCH_ENGINES` | `false` | allow indexing in `robots.txt` |
 
@@ -89,7 +89,7 @@ The reverse proxy must pass WebSocket upgrades for `/mp` (Caddy and Traefik do t
 
 Sessions live in memory only; `docker compose up -d --build` after an update restarts the server and ends all running sessions.
 
-The SquadCalc API currently answers `403 Unauthorized` to requests without a key, so a self-hosted instance needs `API_KEY` for guesses and images to load.
+Guesses and images come from the public API at `https://squadguessr.app/api/v2/` without a key (`https://squadcalc.app` answers `403` for `/api/v2/get/squadGuess`). For `npm start`, set `DEV_API_URL=https://squadguessr.app` in `.env`.
 Building the frontend outside Docker needs Node ≥ 20.9 (required by `copy-webpack-plugin`); the server and `npm test` run on Node 18.
 
 </br></br>
