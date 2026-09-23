@@ -193,3 +193,47 @@ body.mp-host {
         flex-basis: 100%;
     }
 }
+
+// Big screen / projector view (?watch=CODE): nothing to click, everything larger
+
+body.watch-mode {
+    #actions,
+    #score,
+    #mpEntry {
+        display: none !important;
+    }
+    // leaflet sets pointer-events on its own layers, so the children need it too
+    #map,
+    #map * {
+        pointer-events: none !important;
+    }
+    #timerWrapper {
+        font-size: 3em;
+    }
+    #lobby #mpQr {
+        width: min(50vh, 90vw) !important;
+        height: auto !important;
+    }
+    #mpRoomCode {
+        font-size: 5em;
+    }
+    .mp-players li {
+        font-size: 1.3em;
+    }
+    // the hint image is what the room looks at
+    #rightSide {
+        width: 45%;
+    }
+    #rightSide .mp-ranking,
+    .mp-ranking {
+        width: min(700px, 100%);
+        max-height: none;
+        font-size: 1.3em;
+    }
+    #mpFinalRanking li:nth-child(-n + 3) {
+        font-size: 1.4em;
+    }
+    #mpFinalRanking li:first-child {
+        font-size: 1.8em;
+    }
+}
