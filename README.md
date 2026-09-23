@@ -89,7 +89,7 @@ The reverse proxy must pass WebSocket upgrades for `/mp` (Caddy and Traefik do t
 
 Sessions live in memory only; `docker compose up -d --build` after an update restarts the server and ends all running sessions.
 
-Guesses and images come from the public API at `https://squadguessr.app/api/v2/` without a key (`https://squadcalc.app` answers `403` for `/api/v2/get/squadGuess`). For `npm start`, set `DEV_API_URL=https://squadguessr.app` in `.env`.
+Guesses and images come from the public API at `https://squadguessr.app/api/v2/` without a key (`https://squadcalc.app` answers `403` for `/api/v2/get/squadGuess`).
 Building the frontend outside Docker needs Node ≥ 20.9 (required by `copy-webpack-plugin`); the server and `npm test` run on Node 18.
 
 </br></br>

@@ -23,6 +23,11 @@ test("cleanName removes invisible characters and collapses inner whitespace", ()
     assert.equal(cleanName("\u200b\u200b"), null);
 });
 
+test("cleanName never splits an emoji when truncating", () => {
+    assert.equal(cleanName("ABCDEFGHIJKLMNOPQRS😀"), "ABCDEFGHIJKLMNOPQRS😀");
+    assert.equal(cleanName("ABCDEFGHIJKLMNOPQRST😀"), "ABCDEFGHIJKLMNOPQRST");
+});
+
 test("validSettings accepts only allowed values", () => {
     assert.equal(validSettings({ mode: "classic", timer: 0, rounds: 5 }), true);
     assert.equal(validSettings({ mode: "mapFinder", timer: 15, rounds: 10 }), true);

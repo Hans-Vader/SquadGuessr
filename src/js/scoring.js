@@ -32,36 +32,29 @@ export function pointsForDistance(distance, size) {
 }
 
 /**
- * Smallest edit distance between `b` and the whole of `a` (spaces removed) or any single word of `a`
+ * Plain edit distance between two strings
  */
 export function levenshtein(a, b) {
-
-    function normalize(str) { return str.toLowerCase().trim().replace(/\s+/g, " "); }
-
-    a = normalize(a);
-    b = normalize(b);
-
-    // Direct compact match
-    if (a.replace(/\s/g, "") === b) return 0;
-
-    const words = a.split(" ");
-    let best = Infinity;
-
-    for (const word of words) {
-        const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
-        for (let j = 0; j <= word.length; j++) matrix[0][j] = j;
-        for (let i = 1; i <= b.length; i++) {
-            for (let j = 1; j <= word.length; j++) {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j - 1] + (b[i - 1] === word[j - 1] ? 0 : 1)
-                );
-            }
+    const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+        let diagonal = row[0];
+        row[0] = i;
+        for (let j = 1; j <= b.length; j++) {
+            const above = row[j];
+            row[j] = Math.min(row[j] + 1, row[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+            diagonal = above;
         }
-        best = Math.min(best, matrix[b.length][word.length]);
     }
-    return best;
+    return row[b.length];
+}
+
+/**
+ * Does a typed answer name this map? Case, spaces, "_" and up to 2 typos are forgiven.
+ * The whole answer is compared, so listing several maps in one answer does not match any of them.
+ */
+export function mapNameMatches(answer, mapName) {
+    const compact = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return levenshtein(compact(answer), compact(mapName)) <= 2;
 }
 
 export function distance(a, b) {
@@ -79,7 +72,7 @@ export function mapSize(mapName) {
  */
 export function scoreAnswer(mode, guess, answer) {
     if (mode === "mapFinder") {
-        return { distance: null, points: levenshtein(answer.mapName, guess.map) <= 2 ? 100 : 0 };
+        return { distance: null, points: mapNameMatches(answer.mapName, guess.map) ? 100 : 0 };
     }
     const d = distance(guess, answer);
     return { distance: d, points: pointsForDistance(d, mapSize(guess.map)).points };

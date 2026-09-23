@@ -64,8 +64,8 @@ export default async (env) => {
         infrastructureLogging: { level: "none" },
         devServer: {
             port: process.env.DEV_SERVER_PORT || 3000,
+            // phones on the LAN reach it by IP; the default allowedHosts ("auto") still blocks DNS rebinding
             host: "0.0.0.0",
-            allowedHosts: "all",
             open: DEV_SERVER_AUTO_OPEN,
             watchFiles: ["src/**/*.html"],
             historyApiFallback: { disableDotRule: true },
@@ -76,7 +76,7 @@ export default async (env) => {
             proxy: [
                 {
                     context: ["/api/"],
-                    target: process.env.DEV_API_URL || "https://squadcalc.app",
+                    target: process.env.DEV_API_URL || "https://squadguessr.app",
                     changeOrigin: true,
                     ws: true,
                     onProxyReq: (proxyReq) => {

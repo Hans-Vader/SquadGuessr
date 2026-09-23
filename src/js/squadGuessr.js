@@ -6,7 +6,7 @@ import SquadSettings from "./squadSettings.js";
 import packageInfo from "../../package.json";
 import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
-import { pointsForDistance, levenshtein } from "./scoring.js";
+import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
 import "./libs/leaflet-measure-path.js";
 
@@ -240,7 +240,8 @@ export default class SquadGuessr {
         this.score = 0;
 
         $("#totalPoints").html(0);
-        this.INPUT_GUESS.val("");
+        // a previous game (or a multiplayer round) may have hidden or disabled the map name input
+        this.INPUT_GUESS.val("").prop({ hidden: false, disabled: false });
 
         this.BUTTON_NEXT.prop("hidden", false);
         this.BUTTON_GUESS.prop("hidden", false);
@@ -391,13 +392,8 @@ export default class SquadGuessr {
     }
 
     handleMapGuess() {
-        let points = 0;
-        let icon = "❌";
-
-        if (levenshtein(this.INPUT_GUESS.val(), this.currentGuess.map) <= 2) {
-            points = 100;
-            icon = "✅";
-        }
+        const { points } = scoreAnswer("mapFinder", this.currentGuess, { mapName: this.INPUT_GUESS.val() });
+        const icon = points ? "✅" : "❌";
 
         let mapName = this.currentGuess.map;
         mapName = mapName.charAt(0).toUpperCase() + mapName.slice(1);
@@ -689,16 +685,9 @@ export default class SquadGuessr {
 
 
     getSolutionDistance() {
-        const solutionLatLng = [this.currentGuess.lat, this.currentGuess.lng];
-        const guessLatLng = [
-            this.minimap.guessMarker.getLatLng().lat * this.minimap.mapToGameScale,
-            this.minimap.guessMarker.getLatLng().lng * this.minimap.mapToGameScale
-        ];
-
-        const dx = solutionLatLng[1] - guessLatLng[1];
-        const dy = solutionLatLng[0] - guessLatLng[0];
-
-        return Math.sqrt(dx * dx + dy * dy);
+        const scale = this.minimap.mapToGameScale;
+        const guess = this.minimap.guessMarker.getLatLng();
+        return distance(this.currentGuess, { lat: guess.lat * scale, lng: guess.lng * scale });
     }
 
 

@@ -66,11 +66,18 @@ export class Session {
     }
 
     disconnect(conn) {
+        this.touch();
         this.watchers.delete(conn);
         const player = this.playerByConn(conn);
         if (!player) return;
-        player.conn = null;
-        player.connected = false;
+        // in the lobby a vanished guest just frees name and slot (they can simply join again);
+        // the host and anyone in a running game stay, so they can come back with their token
+        if (this.phase === "lobby" && player.id !== this.hostId) {
+            this.players.delete(player.id);
+        } else {
+            player.conn = null;
+            player.connected = false;
+        }
         this.broadcastState();
         this.checkRoundEnd();
     }
@@ -89,7 +96,7 @@ export class Session {
         switch (msg.type) {
         case "settings": return this.updateSettings(conn, msg.settings);
         case "start": return this.start(conn, msg.guesses);
-        case "endRound": return this.phase === "round" ? this.endRound() : this.error(conn, "INVALID");
+        case "endRound": return this.phase === "round" && this.deadline === null ? this.endRound() : this.error(conn, "INVALID");
         case "next": return this.next(conn);
         case "lobby": return this.toLobby(conn);
         }
@@ -133,10 +140,13 @@ export class Session {
 
     /**
      * Explicit "leave": frees name and slot in the lobby; during a game the player stays in the ranking, offline.
-     * The host is never removed (no host migration), only marked offline.
+     * A leaving host hands the role to the next connected player, otherwise nobody could continue the game.
      */
     leave(player) {
-        if (this.phase === "lobby" && player.id !== this.hostId) {
+        if (player.id === this.hostId) {
+            this.hostId = this.findPlayer(p => p.connected && p.id !== player.id)?.id ?? null;
+        }
+        if (this.phase === "lobby") {
             this.players.delete(player.id);
         } else {
             player.conn = null;
@@ -187,7 +197,11 @@ export class Session {
         if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) this.endRound();
     }
 
+    /**
+     * Only a session nobody is connected to can go idle
+     */
     isIdle(ms) {
+        if (this.watchers.size > 0 || this.findPlayer(p => p.connected)) return false;
         return this.now() - this.lastActivity > ms;
     }
 

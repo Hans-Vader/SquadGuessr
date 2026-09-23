@@ -240,12 +240,6 @@ body.watch-mode {
     }
 }
 
-// leftovers of a left session must never show up in singleplayer
-
-body:not(.mp-active) :is(#mpStatus, #mpRanking, #BUTTON_MP_ENDROUND) {
-    display: none !important;
-}
-
 #BUTTON_MP {
     margin-top: 1.5em;
 }

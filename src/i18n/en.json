@@ -76,7 +76,9 @@
             "SESSION_FULL": "The session is full",
             "NOT_HOST": "Only the host can do that",
             "INVALID": "Invalid request",
-            "GUESSES": "Could not load guesses"
+            "GUESSES": "Could not load guesses",
+            "CODE": "Enter the 4-character code",
+            "SERVER_BUSY": "Too many sessions right now, try again later"
         }
     },
     "desc": "Find where the screenshot has been taken"

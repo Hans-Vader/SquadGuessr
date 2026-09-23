@@ -178,6 +178,16 @@ test("host can end a round early", () => {
     assert.equal(s.phase, "reveal");
 });
 
+test("host cannot end a timed round early; it ends when the timer runs out", () => {
+    const { s, host, last, advance } = started({ mode: "classic", timer: 60, rounds: 3 });
+    s.handle(host, { type: "endRound" });
+    assert.equal(s.phase, "round");
+    assert.equal(last(host, "error").code, "INVALID");
+    advance(61_000);
+    s.tick();
+    assert.equal(s.phase, "reveal");
+});
+
 test("mapFinder answers are scored by map name", () => {
     const { s, host, guest, last } = started({ mode: "mapFinder", timer: 0, rounds: 3 });
     s.handle(host, { type: "answer", index: s.round, mapName: "narv" });
@@ -259,7 +269,8 @@ test("unknown message types are rejected", () => {
 });
 
 test("isIdle after inactivity", () => {
-    const { s, advance } = setup();
+    const { s, host, advance } = setup();
+    s.disconnect(host);
     advance(1000);
     assert.equal(s.isIdle(5000), false);
     advance(5000);
@@ -301,11 +312,61 @@ test("leaving a running game keeps the player's score but marks them offline", (
     assert.equal(s.phase, "reveal");
 });
 
-test("the host leaving the lobby stays host (no host migration)", () => {
-    const { s, host, last } = withGuest();
-    const token = last(host, "welcome").token;
+test("a host who leaves hands the host role to the next connected player", () => {
+    const { s, host, guest, last } = withGuest();
     s.handle(host, { type: "leave" });
+    const state = last(guest, "state");
+    assert.equal(state.hostId, last(guest, "welcome").playerId);
+    assert.deepEqual(state.players.map(p => p.name), ["Max"]);
+    s.handle(guest, { type: "start", guesses: GUESSES });
+    assert.equal(s.phase, "round");
+});
+
+test("a host who leaves mid-game hands over so the game can continue", () => {
+    const { s, host, guest, last } = started();
+    s.handle(host, { type: "leave" });
+    s.handle(guest, { type: "answer", index: 0, lat: 100, lng: 200 });
+    assert.equal(s.phase, "reveal");
+    s.handle(guest, { type: "next" });
+    assert.equal(s.phase, "round");
+    assert.equal(last(guest, "state").players.find(p => p.name === "Hans").connected, false);
+});
+
+test("a host whose connection drops in the lobby stays host and can come back", () => {
+    const { s, host, guest, last } = withGuest();
+    const token = last(host, "welcome").token;
+    s.disconnect(host);
+    assert.notEqual(last(guest, "state").hostId, last(guest, "welcome").playerId);
     const back = {};
     s.join(back, { token });
     assert.equal(last(back, "welcome").isHost, true);
+});
+
+test("players whose connection drops in the lobby free their name and slot", () => {
+    const { s, host, last } = setup();
+    const guests = [];
+    for (let i = 1; i < MAX_PLAYERS; i++) {
+        const g = {};
+        s.join(g, { name: `P${i}` });
+        guests.push(g);
+    }
+    guests.forEach(g => s.disconnect(g));
+    assert.deepEqual(last(host, "state").players.map(p => p.name), ["Hans"]);
+    assert.equal(s.join({}, { name: "P1" }), true);
+});
+
+test("a session with connected players or watchers is never idle", () => {
+    const { s, host, advance } = setup();
+    const tv = {};
+    s.watch(tv);
+    advance(60 * 60 * 1000);
+    assert.equal(s.isIdle(5000), false);
+    s.disconnect(host);
+    advance(60 * 60 * 1000);
+    assert.equal(s.isIdle(5000), false);
+    s.disconnect(tv);
+    advance(4000);
+    assert.equal(s.isIdle(5000), false);
+    advance(2000);
+    assert.equal(s.isIdle(5000), true);
 });

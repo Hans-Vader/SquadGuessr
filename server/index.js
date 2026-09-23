@@ -7,17 +7,22 @@ const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const IDLE_MS = 30 * 60 * 1000;
 const TICK_MS = 500;
 const HEARTBEAT_MS = 30 * 1000;
+const MAX_SESSIONS = 1000;
 
 /**
  * Multiplayer session server: routes socket messages to Session instances
  */
-export function startServer({ port = 3001, idleMs = IDLE_MS } = {}) {
+export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_SESSIONS } = {}) {
     const wss = new WebSocketServer({ port, path: "/mp", maxPayload: 64 * 1024 });
     const sessions = new Map();
     const sessionOf = new Map();
 
+    // a broadcast hands the same msg object to every recipient: serialize it once
+    const serialized = new WeakMap();
     const send = (ws, msg) => {
-        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ ...msg, serverNow: Date.now() }));
+        if (ws.readyState !== ws.OPEN) return;
+        if (!serialized.has(msg)) serialized.set(msg, JSON.stringify({ ...msg, serverNow: Date.now() }));
+        ws.send(serialized.get(msg));
     };
 
     const newCode = () => {
@@ -36,6 +41,8 @@ export function startServer({ port = 3001, idleMs = IDLE_MS } = {}) {
     const route = (ws, msg) => {
         if (msg.type === "create") {
             leaveCurrent(ws);
+            // bounds memory and keeps newCode() far from exhausting the 32^4 code space
+            if (sessions.size >= maxSessions) return send(ws, { type: "error", code: "SERVER_BUSY" });
             const session = new Session(newCode(), { send });
             if (session.create(ws, msg)) {
                 sessions.set(session.code, session);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pointsForDistance, levenshtein, distance, mapSize, scoreAnswer } from "../src/js/scoring.js";
+import { pointsForDistance, levenshtein, mapNameMatches, distance, mapSize, scoreAnswer } from "../src/js/scoring.js";
 import { MAPS, initMapsProperties } from "../src/js/data/maps.js";
 
 test("pointsForDistance on a 3000m map", () => {
@@ -16,11 +16,23 @@ test("pointsForDistance scales thresholds with map size", () => {
     assert.equal(pointsForDistance(70, 6000).points, 90);
 });
 
-test("levenshtein tolerates case, spaces and small typos", () => {
-    assert.equal(levenshtein("Al Basrah", "AlBasrah"), 0);
-    assert.equal(levenshtein("narva", "Narva"), 0);
-    assert.equal(levenshtein("narv", "Narva"), 1);
-    assert.ok(levenshtein("kohat", "Narva") > 2);
+test("levenshtein is the plain edit distance", () => {
+    assert.equal(levenshtein("narva", "narva"), 0);
+    assert.equal(levenshtein("narv", "narva"), 1);
+    assert.equal(levenshtein("kohat", "narva"), 5);
+});
+
+test("mapNameMatches tolerates case, spaces and small typos", () => {
+    assert.equal(mapNameMatches("Al Basrah", "AlBasrah"), true);
+    assert.equal(mapNameMatches("goose bay", "GooseBay"), true);
+    assert.equal(mapNameMatches("narv", "Narva"), true);
+    assert.equal(mapNameMatches("narva", "Narva_f"), true);
+    assert.equal(mapNameMatches("kohat", "Narva"), false);
+});
+
+test("mapNameMatches cannot be gamed by listing several maps", () => {
+    assert.equal(mapNameMatches("narva kohat gorodok anvil belaya chora", "Narva"), false);
+    assert.equal(mapNameMatches("narva kohat", "Kohat"), false);
 });
 
 test("distance is euclidean on lat/lng", () => {
@@ -41,4 +53,5 @@ test("scoreAnswer classic and mapFinder", () => {
     assert.equal(scoreAnswer("classic", guess, { lat: 100000, lng: 200 }).points, 0);
     assert.deepEqual(scoreAnswer("mapFinder", guess, { mapName: "narv" }), { distance: null, points: 100 });
     assert.equal(scoreAnswer("mapFinder", guess, { mapName: "gorodok" }).points, 0);
+    assert.equal(scoreAnswer("mapFinder", guess, { mapName: "narva kohat gorodok anvil belaya chora" }).points, 0);
 });

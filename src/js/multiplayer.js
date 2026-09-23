@@ -1,6 +1,7 @@
 import i18next from "i18next";
 import QRCode from "qrcode";
 import { guessMarker } from "./guessMarker.js";
+import { updateOffset } from "./clock.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 
@@ -18,7 +19,7 @@ export default class Multiplayer {
         this.me = null;
         this.code = null;
         this.state = null;
-        this.offset = 0;
+        this.offset = null;
         this.retry = 0;
         this.retryTimer = null;
         this.qrCode = null;
@@ -36,7 +37,12 @@ export default class Multiplayer {
         $("#mpName").on("keydown", (e) => {
             if (e.key === "Enter" && $("#mpEntry").hasClass("invite")) this.join($("#mpCode").val());
         });
-        $("#BUTTON_MP_BACK").on("click", () => this.app.switchUI("menu"));
+        $("#BUTTON_MP_BACK").on("click", () => {
+            // a connection attempt may still be retrying (e.g. server unreachable): abandon it
+            if (this.active) this.stop();
+            history.replaceState({}, "", "/");
+            this.app.switchUI("menu");
+        });
         $("#BUTTON_MP_CREATE").on("click", () => this.create());
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
         $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
@@ -88,7 +94,8 @@ export default class Multiplayer {
     join(rawCode) {
         const code = String(rawCode).trim().toUpperCase();
         const name = this.readName();
-        if (!name || code.length !== 4) return;
+        if (!name) return;
+        if (code.length !== 4) return this.toast("warning", "mp.errors.CODE");
         this.open({ type: "join", code, name, token: localStorage.getItem(`mp:${code}`) ?? undefined });
     }
 
@@ -110,6 +117,11 @@ export default class Multiplayer {
     // ===== CONNECTION =====
 
     open(hello) {
+        // a second click (or a click while reconnecting) replaces the previous attempt instead of adding a socket
+        clearTimeout(this.retryTimer);
+        const previous = this.ws;
+        this.ws = null;
+        previous?.close();
         this.hello = hello;
         this.active = true;
         this.retry = 0;
@@ -121,12 +133,14 @@ export default class Multiplayer {
         const protocol = location.protocol === "https:" ? "wss" : "ws";
         const ws = new WebSocket(`${protocol}://${location.host}/mp`);
         this.ws = ws;
+        this.offset = null;
         ws.onopen = () => {
+            if (this.ws !== ws) return;
             this.retry = 0;
             $("#mpBanner").prop("hidden", true);
             this.send(this.hello);
         };
-        ws.onmessage = (event) => this.onMessage(JSON.parse(event.data));
+        ws.onmessage = (event) => { if (this.ws === ws) this.onMessage(JSON.parse(event.data)); };
         ws.onclose = () => {
             if (!this.active || this.ws !== ws) return;
             $("#mpBanner").prop("hidden", false);
@@ -160,7 +174,8 @@ export default class Multiplayer {
         this.me = null;
         this.code = null;
         $("body").removeClass("mp-active mp-host watch-mode");
-        $("#mpBanner").prop("hidden", true);
+        $("#mpBanner, #mpStatus, #mpRanking, #BUTTON_MP_ENDROUND").prop("hidden", true);
+        this.app.INPUT_GUESS.prop("disabled", false);
     }
 
     leave() {
@@ -174,7 +189,7 @@ export default class Multiplayer {
     // ===== MESSAGES =====
 
     onMessage(msg) {
-        if (msg.serverNow) this.offset = msg.serverNow - Date.now();
+        if (msg.serverNow) this.offset = updateOffset(this.offset, msg.serverNow, Date.now());
 
         switch (msg.type) {
         case "welcome":
@@ -205,13 +220,13 @@ export default class Multiplayer {
 
     onError(code) {
         this.toast("error", `mp.errors.${code}`);
-        if (code === "SESSION_NOT_FOUND") {
-            localStorage.removeItem(`mp:${this.hello?.code}`);
-            this.leave();
-            return;
-        }
-        // rejected before we were ever in the session (name taken, game running, full): stay on the entry screen
-        if (!this.state) this.stop();
+        if (code === "SESSION_NOT_FOUND") localStorage.removeItem(`mp:${this.hello?.code}`);
+        const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "GAME_RUNNING", "SESSION_FULL", "SERVER_BUSY"].includes(code);
+        if (!rejected) return;
+        // were in the session (server restart, dropped from the lobby) or came via a dead invite link: back to the menu
+        if (this.state || $("#mpEntry").hasClass("invite")) return this.leave();
+        // typed a wrong code / taken name on the entry screen: stay there to correct it
+        this.stop();
     }
 
     // ===== RENDERING =====
@@ -272,7 +287,7 @@ export default class Multiplayer {
         app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered, disabled: true });
         app.BUTTON_NEXT.prop("hidden", true);
         app.BUTTON_RESULTS.prop("hidden", true);
-        $("#BUTTON_MP_ENDROUND").prop("hidden", !this.isHost());
+        $("#BUTTON_MP_ENDROUND").prop("hidden", !this.isHost() || Boolean(msg.deadline));
 
         app.switchUI("game");
         app.setupHint();
@@ -310,7 +325,7 @@ export default class Multiplayer {
         if (!deadline) return;
 
         const tick = () => {
-            const left = Math.max(0, Math.ceil((deadline - Date.now() - this.offset) / 1000));
+            const left = Math.max(0, Math.ceil((deadline - Date.now() - (this.offset ?? 0)) / 1000));
             this.app.updateTimerDisplay(left);
             if (left > 0) return;
             clearInterval(this.countdown);
@@ -332,7 +347,9 @@ export default class Multiplayer {
 
         // fresh = we missed the round (reconnect straight into reveal)
         const fresh = app.currentGuess?.url !== solution.url;
-        const needsMap = fresh || !mm.activeMap || mm.activeMap.name.toLowerCase() !== solution.map.toLowerCase();
+        // mapFinder never drew the map during the round (even if activeMap happens to be the right one)
+        const needsMap = fresh || app.selectedMode === "mapFinder" || !mm.activeMap
+            || mm.activeMap.name.toLowerCase() !== solution.map.toLowerCase();
         app.currentGuess = { ...solution, submitter: fresh ? null : app.currentGuess.submitter };
 
         $("#gameWrapper").removeClass("no-map");
@@ -342,17 +359,22 @@ export default class Multiplayer {
             app.setupHint();
         }
         mm.invalidateSize();
-        mm.guessMarker?.dragging.disable();
 
+        const mine = msg.results.find(r => r.id === this.me);
         const latLng = app.getSolutionLatLng();
         app.createSolutionMarker(latLng);
-        if (mm.guessMarker) app.drawSolutionDistance(latLng);
+        // show my guess as the server scored it; a marker placed but never sent must not look scored
+        mm.guessMarker?.remove();
+        mm.guessMarker = null;
+        if (mine && mine.lat !== null) {
+            mm.guessMarker = new guessMarker(this.toMap(mine), { draggable: false }, mm).addTo(mm.markersGroup);
+            app.drawSolutionDistance(latLng);
+        }
         msg.results
-            .filter(r => r.lat !== null && (r.id !== this.me || !mm.guessMarker))
+            .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => this.addOtherMarker(r));
         app.focusOnSolution(latLng, app.selectedMode === "mapFinder" ? 3 : 6);
 
-        const mine = msg.results.find(r => r.id === this.me);
         if (mine) {
             $("#dist").text(mine.distance === null ? "—" : app.formatDistance(mine.distance));
             $("#points").text(mine.points);
@@ -377,11 +399,16 @@ export default class Multiplayer {
         $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", this.isHost());
     }
 
+    toMap({ lat, lng }) {
+        const mm = this.app.minimap;
+        return [lat * mm.gameToMapScale, lng * mm.gameToMapScale];
+    }
+
     addOtherMarker(result) {
         const mm = this.app.minimap;
         const label = document.createElement("span");
         label.textContent = `${result.name} +${result.points}`;
-        new guessMarker([result.lat * mm.gameToMapScale, result.lng * mm.gameToMapScale], { draggable: false }, mm)
+        new guessMarker(this.toMap(result), { draggable: false }, mm)
             .addTo(mm.markersGroup)
             .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -45], className: "mpTooltip" });
     }

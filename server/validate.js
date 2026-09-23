@@ -12,7 +12,8 @@ export function cleanName(name) {
     if (typeof name !== "string") return null;
     // NFKC folds look-alike forms; \p{C} drops control, format (zero-width, bidi) and unassigned characters
     const printable = name.normalize("NFKC").replace(/\p{C}/gu, "").replace(/\s+/g, " ");
-    const clean = printable.trim().slice(0, 20).trim();
+    // Array.from counts code points, so an emoji is never cut in half
+    const clean = Array.from(printable.trim()).slice(0, 20).join("").trim();
     return clean || null;
 }
 
