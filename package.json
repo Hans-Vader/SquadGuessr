@@ -26,7 +26,8 @@
   "scripts": {
     "start": "webpack serve -c ./config/webpack.config.js",
     "build": "webpack -c ./config/webpack.config.js",
-    "lint": "stylelint --fix -c ./config/.stylelintrc.json ./src/**/*.scss && htmlhint --config ./config/.htmlhintrc.json --nocolor ./src/ && jshint ./src/ && eslint --fix -c ./config/.eslintrc.js ./src/"
+    "lint": "stylelint --fix -c ./config/.stylelintrc.json ./src/**/*.scss && htmlhint --config ./config/.htmlhintrc.json --nocolor ./src/ && jshint ./src/ && eslint --fix -c ./config/.eslintrc.js ./src/",
+    "test": "node --test server/"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.15",

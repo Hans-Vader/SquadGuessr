@@ -6,6 +6,7 @@ import SquadSettings from "./squadSettings.js";
 import packageInfo from "../../package.json";
 import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
+import { pointsForDistance, levenshtein } from "./scoring.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -388,7 +389,7 @@ export default class SquadGuessr {
         let points = 0;
         let icon = "❌";
 
-        if (this.levenshtein(this.INPUT_GUESS.val(), this.currentGuess.map) <= 2) {
+        if (levenshtein(this.INPUT_GUESS.val(), this.currentGuess.map) <= 2) {
             points = 100;
             icon = "✅";
         }
@@ -407,38 +408,6 @@ export default class SquadGuessr {
         this.minimap.invalidateSize();
         this.createSolutionMarker(solutionLatLng);
         this.focusOnSolution(solutionLatLng, 3);
-    }
-
-
-
-    levenshtein(a, b) {
-
-        function normalize(str) { return str.toLowerCase().trim().replace(/\s+/g, " "); }
-
-        a = normalize(a);
-        b = normalize(b);
-
-        // Direct compact match
-        if (a.replace(/\s/g, "") === b) return 0;
-
-        const words = a.split(" ");
-        let best = Infinity;
-
-        for (const word of words) {
-            const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
-            for (let j = 0; j <= word.length; j++) matrix[0][j] = j;
-            for (let i = 1; i <= b.length; i++) {
-                for (let j = 1; j <= word.length; j++) {
-                    matrix[i][j] = Math.min(
-                        matrix[i - 1][j] + 1,
-                        matrix[i][j - 1] + 1,
-                        matrix[i - 1][j - 1] + (b[i - 1] === word[j - 1] ? 0 : 1)
-                    );
-                }
-            }
-            best = Math.min(best, matrix[b.length][word.length]);
-        }
-        return best;
     }
 
 
@@ -724,60 +693,10 @@ export default class SquadGuessr {
 
 
     getPoints(distance) {
-        // base thresholds for a 3000x3000 map
-        const baseSteps = [
-            { maxDistance: 20, points: 100, icon: "! 💯" },
-            { maxDistance: 50, points: 80, icon: "! 🌟" },
-            { maxDistance: 100, points: 60, icon: "👏🏼" },
-            { maxDistance: 200, points: 40, icon: "👍🏼" },
-            { maxDistance: 300, points: 20, icon: "😐" },
-            { maxDistance: 500, points: 10, icon: ".. 🤨" },
-        ];
-        const mapSize = this.minimap.activeMap.size;
-        const scale = mapSize / 3000; // 1 for base map, >1 for bigger maps, <1 for smaller
-
-        // scale thresholds
-        const steps = baseSteps.map(s => ({
-            maxDistance: s.maxDistance * scale,
-            points: s.points,
-            icon: s.icon
-        }));
-
-        let points;
-        let icon = ""; // Add this to track the icon
-
-        if (distance <= steps[0].maxDistance) {
-            points = steps[0].points;
-            icon = steps[0].icon;
-        } else if (distance > steps[steps.length - 1].maxDistance) {
-            points = 0;
-            icon = "... ❌"; // Or whatever icon you want for 0 points
-        } else {
-            points = this.interpolatePoints(distance, steps);
-            // Find the appropriate icon based on distance
-            icon = steps.find(s => distance <= s.maxDistance)?.icon || "";
-        }
-
+        const { points, icon } = pointsForDistance(distance, this.minimap.activeMap.size);
         this.gameData[this.gamePhase - 1].points = points;
         $("#mapName").html(`${points} ${i18next.t("shared.points", { ns: "common" })} ${icon}`).fadeIn();
         return points;
-    }
-
-
-    interpolatePoints(distance, steps) {
-        for (let i = 1; i < steps.length; i++) {
-            if (distance <= steps[i].maxDistance) {
-                const prevStep = steps[i - 1];
-                const currStep = steps[i];
-
-                const distanceRange = currStep.maxDistance - prevStep.maxDistance;
-                const pointsRange = currStep.points - prevStep.points;
-                const distanceIntoRange = distance - prevStep.maxDistance;
-
-                return Math.round(prevStep.points + (pointsRange * distanceIntoRange / distanceRange));
-            }
-        }
-        return 0;
     }
 
     formatDistance(meters) {
