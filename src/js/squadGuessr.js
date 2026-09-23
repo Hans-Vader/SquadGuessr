@@ -710,9 +710,9 @@ export default class SquadGuessr {
         this.solutionMarker = new solutionMarker(latLng, {}, this).addTo(this.minimap.markersGroup);
     }
 
-    drawSolutionDistance(latLng) {
+    drawSolutionDistance(latLng, from = this.minimap.guessMarker.getLatLng()) {
         new Polyline(
-            [this.minimap.guessMarker.getLatLng(), latLng],
+            [from, latLng],
             {
                 color: "#ff4d4d",
                 weight: 3,
