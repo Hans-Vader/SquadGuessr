@@ -1,0 +1,37 @@
+import { MAPS } from "../src/js/data/maps.js";
+
+const MODES = ["classic", "mapFinder"];
+const TIMERS = [0, 15, 60];
+const ROUNDS = [3, 5, 10];
+const URL_PATTERN = /^\/img\/[\w\-/.]+$/;
+
+/**
+ * Player name as shown to others, or null if nothing usable is left
+ */
+export function cleanName(name) {
+    if (typeof name !== "string") return null;
+    const printable = [...name].filter(c => c >= " " && c !== "\u007f").join("");
+    const clean = printable.trim().slice(0, 20).trim();
+    return clean || null;
+}
+
+export function validSettings(s) {
+    return Boolean(s) && MODES.includes(s.mode) && TIMERS.includes(s.timer) && ROUNDS.includes(s.rounds);
+}
+
+export function validGuesses(guesses, rounds) {
+    return Array.isArray(guesses) && guesses.length === rounds && guesses.every(validGuess);
+}
+
+function validGuess(g) {
+    return Boolean(g)
+        && typeof g.map === "string" && MAPS.some(m => m.name.toLowerCase() === g.map.toLowerCase())
+        && typeof g.url === "string" && g.url.length <= 200 && URL_PATTERN.test(g.url) && !g.url.includes("..")
+        && Number.isFinite(g.lat) && Number.isFinite(g.lng)
+        && (g.submitter === undefined || g.submitter === null || (typeof g.submitter === "string" && g.submitter.length <= 40));
+}
+
+export function validAnswer(msg, mode) {
+    if (mode === "mapFinder") return typeof msg.mapName === "string" && msg.mapName.length <= 40;
+    return Number.isFinite(msg.lat) && Number.isFinite(msg.lng);
+}
