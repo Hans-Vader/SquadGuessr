@@ -280,6 +280,15 @@ export default class Multiplayer {
             total: online.length,
         });
         $("#mpStatus").text(text).prop("hidden", !this.answered && !this.watching);
+
+        // the big screen shows the standings while the room is still guessing
+        if (this.watching) {
+            const rows = [...s.players]
+                .sort((a, b) => b.score - a.score)
+                .map(p => ({ id: p.id, name: p.answered ? `${p.name} ✓` : p.name, score: p.score }));
+            this.renderRanking($("#mpRanking"), rows);
+        }
+        $("#mpRanking").prop("hidden", !this.watching);
     }
 
     // ===== GAME =====

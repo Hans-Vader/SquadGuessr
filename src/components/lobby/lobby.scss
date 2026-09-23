@@ -103,9 +103,15 @@
     list-style: none;
     width: min(420px, 100%);
     margin: 1em auto;
+    // one grid for the whole list so every row shares the same column widths
+    display: grid;
+    grid-template-columns: 2.5em 1fr auto auto;
+    align-content: start;
     li {
         display: grid;
-        grid-template-columns: 2.5em 1fr auto auto;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        align-items: baseline;
         gap: 0.6em;
         padding: 0.4em 0.8em;
         border-bottom: 1px solid #333;
@@ -129,7 +135,7 @@ body.mp-active {
         margin-top: 0.5em;
     }
     #mpFinalRanking {
-        display: block;
+        display: grid;
     }
     .maps-container,
     #BUTTON_SHARE {
