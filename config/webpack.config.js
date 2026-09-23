@@ -64,6 +64,8 @@ export default async (env) => {
         infrastructureLogging: { level: "none" },
         devServer: {
             port: process.env.DEV_SERVER_PORT || 3000,
+            host: "0.0.0.0",
+            allowedHosts: "all",
             open: DEV_SERVER_AUTO_OPEN,
             watchFiles: ["src/**/*.html"],
             historyApiFallback: { disableDotRule: true },
@@ -84,6 +86,11 @@ export default async (env) => {
                                 process.env.API_KEY,
                             );
                     },
+                },
+                {
+                    context: ["/mp"],
+                    target: `http://localhost:${process.env.MP_PORT || 3001}`,
+                    ws: true,
                 },
             ],
         },
