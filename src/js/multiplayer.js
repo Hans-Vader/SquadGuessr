@@ -27,7 +27,15 @@ export default class Multiplayer {
     }
 
     init() {
-        $("#BUTTON_MP").on("click", () => this.showEntry());
+        $("#BUTTON_MP").on("click", () => {
+            $("#mpEntry").removeClass("invite");
+            this.showEntry();
+        });
+        // Enter joins: always from the code field, from the name field only on an invite link (no create choice there)
+        $("#mpCode").on("keydown", (e) => { if (e.key === "Enter") this.join($("#mpCode").val()); });
+        $("#mpName").on("keydown", (e) => {
+            if (e.key === "Enter" && $("#mpEntry").hasClass("invite")) this.join($("#mpCode").val());
+        });
         $("#BUTTON_MP_BACK").on("click", () => this.app.switchUI("menu"));
         $("#BUTTON_MP_CREATE").on("click", () => this.create());
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
@@ -45,6 +53,8 @@ export default class Multiplayer {
         if (watch) return this.watch(watch);
         if (!join) return;
         $("#mpCode").val(join);
+        // invite link: only ask for the name, no "create session" and no code field
+        $("#mpEntry").addClass("invite");
         // page reload during a game: rejoin silently with the stored token
         if (localStorage.getItem(`mp:${join}`) && $("#mpName").val()) return this.join(join);
         this.showEntry();

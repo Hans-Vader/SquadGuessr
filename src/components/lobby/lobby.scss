@@ -245,3 +245,15 @@ body.watch-mode {
 body:not(.mp-active) :is(#mpStatus, #mpRanking, #BUTTON_MP_ENDROUND) {
     display: none !important;
 }
+
+#BUTTON_MP {
+    margin-top: 1.5em;
+}
+
+#mpEntry.invite :is(#BUTTON_MP_CREATE, #mpCode) {
+    display: none !important;
+}
+
+#mpEntry.invite .mp-join {
+    justify-content: center;
+}
