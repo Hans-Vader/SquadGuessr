@@ -254,6 +254,65 @@ body:not(.mp-active) :is(#mpStatus, #mpRanking, #BUTTON_MP_ENDROUND) {
     display: none !important;
 }
 
-#mpEntry.invite .mp-join {
-    justify-content: center;
+// entry form: one column, every control the same width, height and radius
+
+#lobby #mpEntry {
+    gap: 0.8em;
+    width: min(360px, 100%);
+    h1 {
+        margin-bottom: 0.3em;
+    }
+    input,
+    button {
+        width: 100%;
+        height: 52px;
+        padding: 0 1em;
+        border-radius: 12px;
+        font-size: 1.05em;
+    }
+    .mp-join {
+        gap: 0.6em;
+        #mpCode {
+            flex: 1;
+            min-width: 0;
+            letter-spacing: 0.4em;
+        }
+        #BUTTON_MP_JOIN {
+            flex: 0 0 38%;
+        }
+    }
+    .mp-divider {
+        display: flex;
+        align-items: center;
+        gap: 0.8em;
+        width: 100%;
+        margin: 0.4em 0;
+        color: #888;
+        font-size: 0.8em;
+        text-transform: uppercase;
+        &::before,
+        &::after {
+            content: "";
+            flex: 1;
+            border-top: 1px solid #333;
+        }
+    }
+    // invite link: name + join only
+    &.invite {
+        .mp-divider {
+            display: none;
+        }
+        .mp-join #BUTTON_MP_JOIN {
+            flex: 1;
+        }
+    }
+    // secondary action: outlined instead of filled
+    #BUTTON_MP_BACK {
+        margin-top: 0.6em;
+        background: transparent;
+        border: 2px solid #333;
+        &:hover {
+            background: #272727;
+        }
+    }
 }
