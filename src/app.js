@@ -15,6 +15,7 @@ import "./components/results/results.scss";
 import "./components/footer/footer.scss";
 import "./components/shared/_variables.scss";
 import "./components/game/mapLogo.scss";
+import "./components/lobby/lobby.scss";
 
 
 // JS

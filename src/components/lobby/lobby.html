@@ -1,0 +1,49 @@
+<div id="lobby">
+
+    <div id="mpEntry">
+        <h1 data-i18n="common:mp.title"></h1>
+        <input type="text" id="mpName" maxlength="20" autocomplete="off" data-i18n-placeholder="common:mp.namePlaceholder" />
+        <button id="BUTTON_MP_CREATE" data-i18n="common:mp.buttons.create"></button>
+        <div class="mp-join">
+            <input type="text" id="mpCode" maxlength="4" autocomplete="off" data-i18n-placeholder="common:mp.codePlaceholder" />
+            <button id="BUTTON_MP_JOIN" data-i18n="common:mp.buttons.join"></button>
+        </div>
+        <button id="BUTTON_MP_BACK" data-i18n="common:timer.buttons.back"></button>
+    </div>
+
+    <div id="mpRoom" hidden>
+        <div class="mp-code">
+            <span data-i18n="common:mp.code"></span>
+            <strong id="mpRoomCode"></strong>
+        </div>
+        <canvas id="mpQr"></canvas>
+        <p id="mpJoinUrl"></p>
+        <ul id="mpPlayers" class="mp-players"></ul>
+        <p id="mpSettingsSummary"></p>
+        <div id="mpSettings" class="host-only">
+            <select id="mpMode">
+                <option value="classic" data-i18n="common:menu.classic"></option>
+                <option value="mapFinder" data-i18n="common:menu.findMap"></option>
+            </select>
+            <select id="mpTimer">
+                <option value="0" data-i18n="common:timer.chill"></option>
+                <option value="60" data-i18n="common:timer.timed"></option>
+                <option value="15" data-i18n="common:timer.rush"></option>
+            </select>
+            <select id="mpRounds">
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+            </select>
+        </div>
+        <p class="guest-only" data-i18n="common:mp.waitingForHost"></p>
+        <div class="button-container">
+            <button id="BUTTON_MP_LEAVE" data-i18n="common:mp.buttons.leave"></button>
+            <button id="BUTTON_MP_START" class="host-only" data-i18n="common:mp.buttons.start"></button>
+        </div>
+        <a id="mpWatchLink" class="host-only" target="_blank" rel="noopener noreferrer" data-i18n="common:mp.showOnScreen"></a>
+    </div>
+
+</div>
+
+<div id="mpBanner" data-i18n="common:mp.reconnecting" hidden></div>

@@ -7,6 +7,7 @@ import packageInfo from "../../package.json";
 import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
 import { pointsForDistance, levenshtein } from "./scoring.js";
+import Multiplayer from "./multiplayer.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -35,6 +36,7 @@ export default class SquadGuessr {
         this.currentGuess = null;
         this.timerInterval = null;
         this.session = false;
+        this.mp = new Multiplayer(this);
     }
 
     initializeElements() {
@@ -58,6 +60,7 @@ export default class SquadGuessr {
         this.setupEventListeners();
         console.log(`SquadGuessr v${this.version} Loaded!`);
         this.switchUI("menu");
+        this.mp.init();
     }
 
     initializeCore() {
@@ -518,22 +521,27 @@ export default class SquadGuessr {
         const uiStates = {
             menu: {
                 show: ["#menu", "#footerLogos"],
-                hide: ["#map_ui", "#timer_ui", "#results"],
+                hide: ["#map_ui", "#timer_ui", "#results", "#lobby"],
                 scoreHidden: true
             },
             timer: {
                 show: ["#timer_ui", "#footerLogos"],
-                hide: ["#menu", "#map_ui", "#results"],
+                hide: ["#menu", "#map_ui", "#results", "#lobby"],
                 scoreHidden: true
             },
             game: {
                 show: ["#map_ui"],
-                hide: ["#menu", "#timer_ui", "#results", "#footerLogos"],
+                hide: ["#menu", "#timer_ui", "#results", "#footerLogos", "#lobby"],
                 scoreHidden: false
             },
             results: {
                 show: ["#results", "#footerLogos"],
-                hide: ["#map_ui", "#timer_ui", "#menu"],
+                hide: ["#map_ui", "#timer_ui", "#menu", "#lobby"],
+                scoreHidden: true
+            },
+            lobby: {
+                show: ["#lobby", "#footerLogos"],
+                hide: ["#map_ui", "#timer_ui", "#menu", "#results"],
                 scoreHidden: true
             }
         };

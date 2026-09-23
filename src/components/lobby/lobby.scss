@@ -1,0 +1,151 @@
+@use "../shared/variables";
+
+#lobby {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 1em;
+    #mpEntry,
+    #mpRoom {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1em;
+        width: min(420px, 100%);
+    }
+    input {
+        width: 100%;
+        padding: 0.8em;
+        font-size: 1.1em;
+        background: #1a1a1a;
+        border: 2px solid #333;
+        border-radius: 12px;
+    }
+    #mpCode {
+        text-transform: uppercase;
+    }
+    .mp-join {
+        display: flex;
+        gap: 0.5em;
+        width: 100%;
+    }
+    .mp-code strong {
+        display: block;
+        font-family: variables.$logoFont;
+        font-size: 3em;
+        letter-spacing: 0.2em;
+    }
+    #mpQr {
+        background: #fff;
+        border-radius: 8px;
+        image-rendering: pixelated;
+    }
+    #mpJoinUrl {
+        font-size: 0.8em;
+        opacity: 0.7;
+        word-break: break-all;
+    }
+    select {
+        background: #272727;
+        padding: 0.6em;
+        border-radius: 10px;
+        font-size: 1em;
+    }
+    #mpWatchLink {
+        color: #aaa;
+    }
+}
+
+#lobby [hidden],
+#mpBanner[hidden],
+#mpStatus[hidden],
+#mpRanking[hidden],
+#BUTTON_MP_ENDROUND[hidden] {
+    display: none !important;
+}
+
+#mpBanner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    padding: 0.5em;
+    background: #a33;
+}
+
+.mp-players {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5em;
+    li {
+        background: #272727;
+        border-radius: 999px;
+        padding: 0.3em 0.9em;
+        &.me {
+            border: 2px solid variables.$mainColor;
+        }
+        &.offline {
+            opacity: 0.4;
+        }
+    }
+}
+
+.mp-ranking {
+    list-style: none;
+    width: min(420px, 100%);
+    margin: 1em auto;
+    li {
+        display: grid;
+        grid-template-columns: 2.5em 1fr auto auto;
+        gap: 0.6em;
+        padding: 0.4em 0.8em;
+        border-bottom: 1px solid #333;
+        &.me {
+            background: rgba(17, 68, 126, 0.3);
+        }
+    }
+    .points {
+        color: #7c7;
+    }
+}
+
+#mpChips,
+#mpFinalRanking {
+    display: none;
+}
+
+body.mp-active {
+    #mpChips {
+        display: flex;
+        margin-top: 0.5em;
+    }
+    #mpFinalRanking {
+        display: block;
+    }
+    .maps-container,
+    #BUTTON_SHARE {
+        display: none !important;
+    }
+}
+
+body.mp-active:not(.mp-host) #BUTTON_PLAYAGAIN {
+    display: none !important;
+}
+
+.host-only {
+    display: none !important;
+}
+
+body.mp-host {
+    .host-only {
+        display: revert !important;
+    }
+    .guest-only {
+        display: none !important;
+    }
+}
