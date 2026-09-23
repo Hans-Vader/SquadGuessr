@@ -6,7 +6,7 @@
 
 **Architecture:** Ein kleiner, autoritativer Node-WebSocket-Server (`server/`, Bibliothek `ws`) hält Sessions im Speicher und berechnet Punkte mit einem gemeinsamen Modul `src/js/scoring.js`, das auch der Browser nutzt. Im Client steuert `src/js/multiplayer.js` (als `App.mp`) Lobby, Runden, Auflösung und Endstand und verwendet dafür den vorhandenen Spiel-Screen mit wenigen Einhängepunkten in `squadGuessr.js`.
 
-**Tech Stack:** Node ≥ 18 (ESM, `node:test`), `ws` 8, Webpack 5, jQuery, Leaflet 2 (alpha), i18next, `qrcode`.
+**Tech Stack:** Node ≥ 18 (ESM, `node:test`), `ws` 8, Webpack 5, jQuery, Leaflet 2 (alpha), i18next, `qrcode`; Hosting mit Docker Compose (`node:20-alpine`, `nginx:1.27-alpine`) hinter dem bestehenden TLS-Reverse-Proxy des VPS.
 
 **Spec:** `docs/superpowers/specs/2026-09-23-multiplayer-session-design.md`
 
@@ -22,6 +22,7 @@
 - Codestil wie im Repo: 4 Spaces, doppelte Anführungszeichen, Semikolons, ESM. Kein `??=` (jshint `esversion: 11` kennt es nicht), keine Regex-Unicode-Property-Escapes.
 - Der Singleplayer muss sich unverändert verhalten.
 - Neue Texte nur in `src/i18n/en.json` unter `mp`; `zh.json` bleibt unverändert (i18next `fallbackLng: "en"`).
+- Docker: nur der `web`-Container veröffentlicht einen Port (`${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}`); `mp` ist nur im Compose-Netz erreichbar und läuft als User `node`. TLS macht der bestehende Reverse-Proxy, nicht Compose.
 
 ## Review Focus
 
@@ -50,6 +51,7 @@
 | `src/i18n/en.json` | ändern | `mp`-Texte |
 | `config/webpack.config.js` | ändern | Dev-Proxy `/mp`, `host: 0.0.0.0` |
 | `package.json` | ändern | `ws`, `qrcode`, Scripts `server`, `test`, Lint auf `server/` |
+| `Dockerfile`, `docker-compose.yml`, `docker/nginx.conf.template`, `.dockerignore` | neu | Hosting per Docker Compose |
 | `README.md`, `CHANGELOG.md` | ändern | Betrieb und Deployment |
 
 ---
@@ -2332,14 +2334,187 @@ git commit -m "feat: big-screen watch mode for multiplayer sessions"
 
 ---
 
-### Task 8: Betriebsdoku und End-to-End-Abnahme
+### Task 8: Docker-Hosting
+
+**Files:**
+- Create: `.dockerignore`
+- Create: `docker/nginx.conf.template`
+- Create: `Dockerfile`
+- Create: `docker-compose.yml`
+
+**Interfaces:**
+- Consumes: `npm run build` → `dist/` (Webpack), `node server/index.js` mit `MP_PORT` (Task 4), `ws` in `dependencies` (Task 4)
+- Produces: `docker compose up -d --build` stellt die App unter `http://${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}` bereit, mit `/mp` → `mp:3001` und `/api/` → `${API_URL}`. Konfiguration über `.env` neben `docker-compose.yml`: `WEB_BIND`, `WEB_PORT`, `API_URL`, `API_KEY`, `SEARCH_ENGINES`.
+
+- [ ] **Step 1: `.dockerignore`**
+
+```
+node_modules
+dist
+.git
+.github
+.idea
+.vscode
+.env
+docs
+*.log
+```
+
+`.env` muss ausgeschlossen sein: Die lokale Datei enthält Dev-Einstellungen, und die Build-Stage schreibt ihre eigene.
+
+- [ ] **Step 2: `docker/nginx.conf.template`**
+
+Das offizielle nginx-Image rendert beim Start `/etc/nginx/templates/*.template` per `envsubst` nach `/etc/nginx/conf.d/`. Dabei werden **nur gesetzte** Umgebungsvariablen ersetzt; nginx-Variablen wie `$http_upgrade` bleiben erhalten. Deshalb setzt Compose `API_KEY` immer, notfalls leer. Ein leerer Header-Wert wird von nginx nicht gesendet.
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # multiplayer websocket
+    location = /mp {
+        proxy_pass http://mp:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+    }
+
+    # guesses and images come from the SquadCalc API (like the webpack dev proxy)
+    location /api/ {
+        proxy_pass ${API_URL};
+        proxy_ssl_server_name on;
+        proxy_set_header X-API-Key "${API_KEY}";
+    }
+}
+```
+
+`proxy_pass ${API_URL}` ohne Pfad reicht `/api/v2/...` unverändert durch, und der `Host`-Header ist standardmäßig der Ziel-Host (entspricht `changeOrigin: true` im Dev-Proxy).
+
+- [ ] **Step 3: `Dockerfile`**
+
+```dockerfile
+# ---- build the static frontend ----
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+ARG SEARCH_ENGINES=false
+# webpack.config.js refuses to run without a .env file
+RUN printf 'SEARCH_ENGINES=%s\nDEV_SERVER_AUTO_OPEN=false\n' "$SEARCH_ENGINES" > .env \
+    && npm run build
+
+# ---- static files + reverse proxy for /mp and /api ----
+FROM nginx:1.27-alpine AS web
+COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# ---- multiplayer websocket server ----
+FROM node:20-alpine AS mp
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY server ./server
+COPY src/js/scoring.js ./src/js/scoring.js
+COPY src/js/data/maps.js ./src/js/data/maps.js
+USER node
+EXPOSE 3001
+CMD ["node", "server/index.js"]
+```
+
+- [ ] **Step 4: `docker-compose.yml`**
+
+```yaml
+services:
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        SEARCH_ENGINES: ${SEARCH_ENGINES:-false}
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    environment:
+      API_URL: ${API_URL:-https://squadcalc.app}
+      API_KEY: ${API_KEY:-}
+    depends_on:
+      - mp
+    restart: unless-stopped
+
+  mp:
+    build:
+      context: .
+      target: mp
+    environment:
+      MP_PORT: "3001"
+    restart: unless-stopped
+```
+
+- [ ] **Step 5: Bauen und starten**
+
+Run: `docker compose up -d --build && docker compose ps`
+Expected: `web` und `mp` haben den Status `running`; nur `web` zeigt einen Port (`127.0.0.1:8080->80/tcp`).
+
+Run: `docker compose exec mp whoami`
+Expected: `node`
+
+Run: `docker compose logs mp`
+Expected: `SquadGuessr multiplayer server listening on :3001/mp`
+
+- [ ] **Step 6: Prüfen, dass alle drei Pfade funktionieren**
+
+Run: `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/ && curl -s -o /dev/null -w "%{http_code}\n" "http://127.0.0.1:8080/?join=ABCD"`
+Expected: `200` und `200`
+
+Run:
+```bash
+node --input-type=module -e '
+import WebSocket from "ws";
+const ws = new WebSocket("ws://127.0.0.1:8080/mp");
+ws.on("open", () => ws.send(JSON.stringify({ type: "create", name: "Docker", settings: { mode: "classic", timer: 0, rounds: 3 } })));
+ws.on("message", (d) => { console.log(String(d)); ws.close(); });
+ws.on("error", (e) => { console.error(e.message); process.exit(1); });
+'
+```
+Expected: eine Zeile mit `"type":"welcome"` und einem 4-stelligen `code`.
+
+Run: `curl -s -o /dev/null -w "%{http_code}\n" -H "X-App-Version: 1.2.2" "http://127.0.0.1:8080/api/v2/get/squadGuess?nb=3"`
+Expected: `200`. Bei `401`/`403` verlangt die API einen Key. Das ist dann **kein** Task-Fehler, sondern gehört in den Report (siehe Spec, Abschnitt „Risiko“): mit `API_KEY=... docker compose up -d` erneut prüfen, falls ein Key vorliegt.
+
+Im Browser `http://127.0.0.1:8080` öffnen: Das Menü lädt, ein Singleplayer-Spiel zeigt Bilder (sofern die API mit 200 antwortet), und „PLAY WITH FRIENDS“ → „CREATE SESSION“ zeigt Code und QR-Code.
+
+Run: `docker compose down`
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add .dockerignore docker/nginx.conf.template Dockerfile docker-compose.yml
+git commit -m "feat: docker compose hosting for frontend and multiplayer server"
+```
+
+---
+
+### Task 9: Betriebsdoku und End-to-End-Abnahme
 
 **Files:**
 - Modify: `README.md` (neuer Abschnitt)
 - Modify: `CHANGELOG.md` (neuer Eintrag oben)
+- Create: `.env.example`
 
 **Interfaces:**
-- Consumes: alles aus den Tasks 1–7
+- Consumes: alles aus den Tasks 1–8
 - Produces: Dokumentation
 
 - [ ] **Step 1: Abschnitt in `README.md`**
@@ -2359,31 +2534,47 @@ npm start        # dev server proxies /mp to it, reachable from phones on the LA
 npm test         # server + scoring tests
 ```
 
-**Production** (same host as the built frontend)
+**Production (Docker Compose)**
+
+Your existing reverse proxy terminates TLS and forwards the domain to the `web` container:
 
 ```bash
-MP_PORT=3001 pm2 start server/index.js --name squadguessr-ws
+cp .env.example .env   # optional, see variables below
+docker compose up -d --build
 ```
 
-nginx, inside the site's `server` block:
+| Variable | Default | |
+|---|---|---|
+| `WEB_BIND` | `127.0.0.1` | use `0.0.0.0` if the reverse proxy runs on another host |
+| `WEB_PORT` | `8080` | point your reverse proxy here |
+| `API_URL` | `https://squadcalc.app` | upstream for `/api/` (guesses and images) |
+| `API_KEY` | empty | sent as `X-API-Key` if set |
+| `SEARCH_ENGINES` | `false` | allow indexing in `robots.txt` |
 
-```nginx
-location = /mp {
-    proxy_pass http://127.0.0.1:3001;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 3600s;
-}
-```
+The reverse proxy must pass WebSocket upgrades for `/mp` (Caddy and Traefik do this automatically; plain nginx needs `proxy_http_version 1.1` plus `Upgrade`/`Connection` headers; Nginx Proxy Manager: enable "Websockets Support").
 
-Sessions live in memory only; restarting the server ends all running sessions. After a deploy run `pm2 restart squadguessr-ws`.
-Guesses and images still come from `/api/v2/`, so a self-hosted instance also needs a reverse proxy for `/api/v2/` to the SquadCalc API.
+Sessions live in memory only; `docker compose up -d --build` after an update restarts the server and ends all running sessions.
 
 </br></br>
 ````
 
-- [ ] **Step 2: Eintrag in `CHANGELOG.md`**
+- [ ] **Step 2: `.env.example`**
+
+```
+# docker compose
+WEB_BIND=127.0.0.1
+WEB_PORT=8080
+API_URL=https://squadcalc.app
+API_KEY=
+SEARCH_ENGINES=false
+
+# webpack dev server (npm start)
+DEV_SERVER_AUTO_OPEN=true
+```
+
+`.env` selbst bleibt gitignored; `.env.example` wird committet. Compose und Webpack lesen beide dieselbe `.env`, die Variablennamen überschneiden sich nicht.
+
+- [ ] **Step 3: Eintrag in `CHANGELOG.md`**
 
 Ganz oben einfügen, im Stil der bestehenden Einträge:
 ```markdown
@@ -2392,35 +2583,36 @@ Ganz oben einfügen, im Stil der bestehenden Einträge:
 </br><img src="https://img.shields.io/badge/-new%20features-green">
 - Added "Play with friends": join a session from your phone by code/QR, play synchronized rounds and find out who wins
 - Added a big-screen view (`?watch=CODE`) for projectors/TVs
+- Added Docker Compose hosting (frontend + multiplayer server)
 
 </br></br><!-- CHANGELOG SPLIT MARKER -->
 
 
 ```
 
-- [ ] **Step 3: Komplette Verifikation**
+- [ ] **Step 4: Komplette Verifikation**
 
-Run: `npm test && npm run build`
-Expected: alle Tests grün, Build fehlerfrei.
+Run: `npm test && npm run build && docker compose build`
+Expected: alle Tests grün, Build und Image-Build fehlerfrei.
 
 Run: `npx eslint -c config/.eslintrc.js --rule "linebreak-style: off" src/js/multiplayer.js src/js/scoring.js src/js/squadGuessr.js server/`
 Expected: keine Fehler.
 
-- [ ] **Step 4: Abnahme mit echtem Handy**
+- [ ] **Step 5: Abnahme mit echtem Handy**
 
-Server und Dev-Server laufen; der PC hat im LAN z. B. die IP `192.168.1.20`.
-1. PC-Browser: `http://192.168.1.20:3000` → Session erstellen. Den QR-Code mit dem Handy scannen → Name eingeben → beitreten.
+Die App läuft per `WEB_BIND=0.0.0.0 docker compose up -d --build` (damit das Handy den Port erreicht). Der PC hat im LAN z. B. die IP `192.168.1.20`. Falls die API im Container nicht mit 200 antwortet (Task 8, Step 6), stattdessen `npm run server` und `npm start` nutzen und Port `3000` statt `8080`.
+1. PC-Browser: `http://192.168.1.20:8080` → Session erstellen. Den QR-Code mit dem Handy scannen → Name eingeben → beitreten.
 2. Einen Watch-Tab am PC öffnen.
 3. Eine Partie Classic · Timed · 3 rounds spielen. Mitten in Runde 2 das Handy 10 s sperren und wieder entsperren → das Banner erscheint kurz, danach zeigt das Handy die aktuelle Phase, und die Punkte sind unverändert.
 4. Ein zweiter Spieler mit dem Namen `<img src=x onerror=alert(1)>` tritt bei → der Name erscheint überall als Text, es gibt keinen Alert.
 5. Host-Tab mitten in einer Runde mit F5 neu laden → er ist wieder Host (END ROUND sichtbar) und behält seine Punkte.
-6. Während einer Session den Server neu starten → alle Clients zeigen „Session not found“ und landen im Menü; es bleibt kein Reconnect-Banner stehen.
+6. Während einer Session `docker compose restart mp` → alle Clients zeigen „Session not found“ und landen im Menü; es bleibt kein Reconnect-Banner stehen.
 
 Ergebnisse (auch Abweichungen) im Task-Report festhalten.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add README.md CHANGELOG.md
+git add README.md CHANGELOG.md .env.example
 git commit -m "docs: multiplayer server setup and changelog"
 ```
