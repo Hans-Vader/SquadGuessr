@@ -1,0 +1,23 @@
+services:
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        SEARCH_ENGINES: ${SEARCH_ENGINES:-false}
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    environment:
+      API_URL: ${API_URL:-https://squadcalc.app}
+      API_KEY: ${API_KEY:-}
+    depends_on:
+      - mp
+    restart: unless-stopped
+
+  mp:
+    build:
+      context: .
+      target: mp
+    environment:
+      MP_PORT: "3001"
+    restart: unless-stopped
