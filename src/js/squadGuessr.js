@@ -138,19 +138,20 @@ export default class SquadGuessr {
 
         this.BUTTON_NEWGAME.on("click", () => this.startNewGame());
         this.BUTTON_GUESS.on("click", () => this.handleGuess());
-        this.BUTTON_NEXT.on("click", () => this.loadNextGuess());
-        this.BUTTON_RESULTS.on("click", () => this.showResults());
+        this.BUTTON_NEXT.on("click", () => this.mp.active ? this.mp.send({ type: "next" }) : this.loadNextGuess());
+        this.BUTTON_RESULTS.on("click", () => this.mp.active ? this.mp.send({ type: "next" }) : this.showResults());
 
     }
 
     setupNavigationButtons() {
         this.BUTTON_TIMER.on("click", () => { this.switchUI("timer"); });
-        this.BUTTON_MENU.on("click", () => { this.switchUI("menu"); });
+        this.BUTTON_MENU.on("click", () => { this.mp.active ? this.mp.leave() : this.switchUI("menu"); });
         this.BUTTON_BACK.on("click", () => { this.switchUI("menu"); });
-        this.BUTTON_PLAYAGAIN.on("click", () => this.startNewGame());
+        this.BUTTON_PLAYAGAIN.on("click", () => this.mp.active ? this.mp.send({ type: "lobby" }) : this.startNewGame());
         this.BUTTON_SHARE.on("click", () => this.copyResults());
         this.MAIN_LOGO.on("click", () => {
             this.stopTimer();
+            if (this.mp.active) return this.mp.leave();
             this.switchUI("menu");
         });
     }
@@ -336,10 +337,10 @@ export default class SquadGuessr {
             $hint.attr("src", `/api/v2${this.currentGuess.url}`);
 
             if (this.currentGuess.submitter) {
-                $("#submitter").html(i18next.t("game.hintBy", { ns: "common" }) + " " + this.currentGuess.submitter);
+                $("#submitter").text(i18next.t("game.hintBy", { ns: "common" }) + " " + this.currentGuess.submitter);
             }
             else {
-                $("#submitter").html("");
+                $("#submitter").text("");
             }
            
 
@@ -372,6 +373,7 @@ export default class SquadGuessr {
     }
 
     handleGuess() {
+        if (this.mp.active) return this.mp.submitAnswer();
         if (!this.currentGuess) return;
 
         this.stopTimer();

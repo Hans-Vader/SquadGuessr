@@ -1,5 +1,6 @@
 import i18next from "i18next";
 import QRCode from "qrcode";
+import { guessMarker } from "./guessMarker.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 
@@ -21,6 +22,8 @@ export default class Multiplayer {
         this.retry = 0;
         this.retryTimer = null;
         this.qrCode = null;
+        this.answered = false;
+        this.countdown = null;
     }
 
     init() {
@@ -30,6 +33,7 @@ export default class Multiplayer {
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
         $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
         $("#BUTTON_MP_START").on("click", () => this.start());
+        $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
         document.addEventListener("visibilitychange", () => this.onVisible());
 
@@ -137,6 +141,8 @@ export default class Multiplayer {
         this.watching = false;
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
+        this.answered = false;
+        this.app.selectMode($(".mode-card.selected").data("mode") || "classic");
         const ws = this.ws;
         this.ws = null;
         ws?.close();
@@ -170,6 +176,15 @@ export default class Multiplayer {
         case "state":
             this.state = msg;
             this.renderState();
+            break;
+        case "round":
+            this.onRound(msg);
+            break;
+        case "reveal":
+            this.onReveal(msg);
+            break;
+        case "final":
+            this.onFinal(msg);
             break;
         case "error":
             this.onError(msg.code);
@@ -212,8 +227,160 @@ export default class Multiplayer {
         if (s.phase === "lobby") this.showRoom();
     }
 
-    // replaced in Task 6
-    renderStatus() {}
+    renderStatus() {
+        const s = this.state;
+        if (!s || s.phase !== "round") return;
+        const online = s.players.filter(p => p.connected);
+        const text = i18next.t("mp.waitingForPlayers", {
+            ns: "common",
+            answered: online.filter(p => p.answered).length,
+            total: online.length,
+        });
+        $("#mpStatus").text(text).prop("hidden", !this.answered && !this.watching);
+    }
+
+    // ===== GAME =====
+
+    onRound(msg) {
+        const app = this.app;
+        const me = this.state.players.find(p => p.id === this.me);
+        this.answered = Boolean(me?.answered);
+
+        app.selectedMode = this.state.settings.mode;
+        app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
+        app.solutionMarker = null;
+        if (msg.map) app.setupMap();
+        else app.minimap.clear();
+
+        $("#gameWrapper").toggleClass("no-map", !msg.map);
+        $("#text").css("visibility", "hidden");
+        $("#mpRanking").prop("hidden", true);
+        $("#round").text(`${msg.index + 1}/${msg.total}`);
+        app.INPUT_GUESS.val("").prop({ hidden: false, disabled: this.answered });
+        app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered, disabled: true });
+        app.BUTTON_NEXT.prop("hidden", true);
+        app.BUTTON_RESULTS.prop("hidden", true);
+        $("#BUTTON_MP_ENDROUND").prop("hidden", !this.isHost());
+
+        app.switchUI("game");
+        app.setupHint();
+        this.renderStatus();
+        this.startCountdown(msg.deadline);
+    }
+
+    submitAnswer() {
+        const app = this.app;
+        if (this.answered || this.watching || this.state?.phase !== "round") return;
+
+        let answer;
+        if (app.selectedMode === "mapFinder") {
+            const mapName = app.INPUT_GUESS.val().trim();
+            if (!mapName) return;
+            answer = { mapName };
+            app.INPUT_GUESS.prop("disabled", true);
+        } else {
+            const marker = app.minimap.guessMarker;
+            if (!marker) return;
+            const { lat, lng } = marker.getLatLng();
+            answer = { lat: lat * app.minimap.mapToGameScale, lng: lng * app.minimap.mapToGameScale };
+            marker.dragging.disable();
+        }
+
+        this.answered = true;
+        this.send({ type: "answer", ...answer });
+        app.BUTTON_GUESS.prop({ hidden: true, disabled: true });
+        this.renderStatus();
+    }
+
+    startCountdown(deadline) {
+        clearInterval(this.countdown);
+        $("#timerWrapper").prop("hidden", !deadline);
+        if (!deadline) return;
+
+        const tick = () => {
+            const left = Math.max(0, Math.ceil((deadline - Date.now() - this.offset) / 1000));
+            this.app.updateTimerDisplay(left);
+            if (left > 0) return;
+            clearInterval(this.countdown);
+            // like singleplayer: a placed marker / typed name counts when time runs out
+            this.submitAnswer();
+        };
+        tick();
+        this.countdown = setInterval(tick, 250);
+    }
+
+    onReveal(msg) {
+        const app = this.app;
+        const mm = app.minimap;
+        const { solution } = msg;
+
+        clearInterval(this.countdown);
+        app.stopTimer();
+        app.selectedMode = this.state.settings.mode;
+
+        // fresh = we missed the round (reconnect straight into reveal)
+        const fresh = app.currentGuess?.url !== solution.url;
+        const needsMap = fresh || !mm.activeMap || mm.activeMap.name.toLowerCase() !== solution.map.toLowerCase();
+        app.currentGuess = { ...solution, submitter: fresh ? null : app.currentGuess.submitter };
+
+        $("#gameWrapper").removeClass("no-map");
+        if (needsMap) app.setupMap();
+        if (fresh) {
+            app.switchUI("game");
+            app.setupHint();
+        }
+        mm.invalidateSize();
+        mm.guessMarker?.dragging.disable();
+
+        const latLng = app.getSolutionLatLng();
+        app.createSolutionMarker(latLng);
+        if (mm.guessMarker) app.drawSolutionDistance(latLng);
+        msg.results
+            .filter(r => r.lat !== null && (r.id !== this.me || !mm.guessMarker))
+            .forEach(r => this.addOtherMarker(r));
+        app.focusOnSolution(latLng, app.selectedMode === "mapFinder" ? 3 : 6);
+
+        const mine = msg.results.find(r => r.id === this.me);
+        if (mine) {
+            $("#dist").text(mine.distance === null ? "—" : app.formatDistance(mine.distance));
+            $("#points").text(mine.points);
+            $("#text").css("visibility", "visible");
+        }
+        const mapLabel = solution.map.charAt(0).toUpperCase() + solution.map.slice(1);
+        if (app.selectedMode === "mapFinder") {
+            $("#mapName").text(`${mine ? (mine.points ? "✅ " : "❌ ") : ""}${mapLabel}`).fadeIn();
+        } else if (mine) {
+            $("#mapName").text(`${mine.points} ${i18next.t("shared.points", { ns: "common" })}`).fadeIn();
+        }
+
+        this.renderRanking($("#mpRanking"), msg.results);
+        $("#mpRanking").prop("hidden", false);
+
+        const last = msg.index + 1 === msg.total;
+        app.INPUT_GUESS.prop("hidden", true);
+        app.BUTTON_GUESS.prop("hidden", true);
+        $("#BUTTON_MP_ENDROUND").prop("hidden", true);
+        app.BUTTON_NEXT.prop({ hidden: !this.isHost() || last, disabled: false });
+        app.BUTTON_RESULTS.prop({ hidden: !this.isHost() || !last, disabled: false });
+        $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", this.isHost());
+    }
+
+    addOtherMarker(result) {
+        const mm = this.app.minimap;
+        const label = document.createElement("span");
+        label.textContent = `${result.name} +${result.points}`;
+        new guessMarker([result.lat * mm.gameToMapScale, result.lng * mm.gameToMapScale], { draggable: false }, mm)
+            .addTo(mm.markersGroup)
+            .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -45], className: "mpTooltip" });
+    }
+
+    onFinal(msg) {
+        clearInterval(this.countdown);
+        this.renderRanking($("#mpFinalRanking"), msg.ranking, msg.winners);
+        const me = msg.ranking.find(r => r.id === this.me);
+        $("#scoreValue").text(me ? me.score : msg.ranking[0]?.score ?? 0);
+        this.app.switchUI("results");
+    }
 
     renderPlayers(s) {
         const items = s.players.map(p => $("<li>")

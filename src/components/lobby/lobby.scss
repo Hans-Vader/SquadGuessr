@@ -4,9 +4,10 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    justify-content: center;
     align-items: center;
     padding: 1em;
+    // scroll instead of clipping under header/footer on small phones
+    overflow-y: auto;
     #mpEntry,
     #mpRoom {
         display: flex;
@@ -14,6 +15,8 @@
         align-items: center;
         gap: 1em;
         width: min(420px, 100%);
+        // centered when it fits, scrollable from the top when it does not
+        margin-block: auto;
     }
     input {
         width: 100%;
@@ -84,6 +87,7 @@
     gap: 0.5em;
     li {
         background: #272727;
+        white-space: nowrap;
         border-radius: 999px;
         padding: 0.3em 0.9em;
         &.me {
@@ -147,5 +151,45 @@ body.mp-host {
     }
     .guest-only {
         display: none !important;
+    }
+}
+
+// in-game ranking must leave room for the host's NEXT button
+
+#rightSide .mp-ranking {
+    margin: 0.5em auto;
+    max-height: 25vh;
+    overflow-y: auto;
+    font-size: 0.85em;
+}
+
+// during reveal the ranking replaces the player chips
+
+#mpRanking:not([hidden]) ~ #mpChips {
+    display: none !important;
+}
+
+.mp-ranking .name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#rightSide .mp-players {
+    font-size: 0.75em;
+    gap: 0.3em;
+}
+
+// phones: the game's right column becomes a row; give the MP elements their own full-width line
+@media (width <= 768px) {
+    #gameWrapper:not(.no-map) #rightSide {
+        flex-wrap: wrap;
+    }
+    #rightSide #mpStatus,
+    #rightSide .mp-ranking,
+    #rightSide #mpChips {
+        order: 10;
+        flex-basis: 100%;
     }
 }
