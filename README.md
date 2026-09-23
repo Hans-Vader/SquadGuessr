@@ -56,6 +56,44 @@ Format don't matter as i will convert everything to `.webp` with a script anyway
 ```
 
 </br></br></br>
+# Multiplayer server
+
+Group sessions ("Play with friends") need the small WebSocket server in `server/`.
+
+**Development**
+
+```bash
+npm run server   # ws server on :3001 (MP_PORT to change)
+npm start        # dev server proxies /mp to it, reachable from phones on the LAN
+npm test         # server + scoring tests
+```
+
+**Production (Docker Compose)**
+
+Your existing reverse proxy terminates TLS and forwards the domain to the `web` container:
+
+```bash
+cp .env.example .env   # optional, see variables below
+docker compose up -d --build
+```
+
+| Variable | Default | |
+|---|---|---|
+| `WEB_BIND` | `127.0.0.1` | use `0.0.0.0` if the reverse proxy runs on another host |
+| `WEB_PORT` | `8080` | point your reverse proxy here |
+| `API_URL` | `https://squadcalc.app` | upstream for `/api/` (guesses and images) |
+| `API_KEY` | empty | sent as `X-API-Key` if set |
+| `SEARCH_ENGINES` | `false` | allow indexing in `robots.txt` |
+
+The reverse proxy must pass WebSocket upgrades for `/mp` (Caddy and Traefik do this automatically; plain nginx needs `proxy_http_version 1.1` plus `Upgrade`/`Connection` headers; Nginx Proxy Manager: enable "Websockets Support").
+
+Sessions live in memory only; `docker compose up -d --build` after an update restarts the server and ends all running sessions.
+
+The SquadCalc API currently answers `403 Unauthorized` to requests without a key, so a self-hosted instance needs `API_KEY` for guesses and images to load.
+Building the frontend outside Docker needs Node ≥ 20.9 (required by `copy-webpack-plugin`); the server and `npm test` run on Node 18.
+
+</br></br>
+
 # **Support the project**
 </br>
 

@@ -1,3 +1,14 @@
+# <img src="https://img.shields.io/badge/-minor%20release-cd6f68?style=for-the-badge"> **1.4.0** *(unreleased)*
+
+</br><img src="https://img.shields.io/badge/-new%20features-green">
+- Added "Play with friends": join a session from your phone by code/QR, play synchronized rounds and find out who wins
+- Added a big-screen view (`?watch=CODE`) for projectors/TVs
+- Added Docker Compose hosting (frontend + multiplayer server)
+
+</br></br><!-- CHANGELOG SPLIT MARKER -->
+
+
+
 # <img src="https://img.shields.io/badge/-minor%20release-cd6f68?style=for-the-badge"> **1.3.0** *(2026-02-19)*
 
 </br><img src="https://img.shields.io/badge/-new%20features-green">
