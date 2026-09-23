@@ -1,4 +1,5 @@
 import i18next from "i18next";
+import { LatLngBounds } from "leaflet";
 import QRCode from "qrcode";
 import { guessMarker } from "./guessMarker.js";
 import { updateOffset } from "./clock.js";
@@ -29,7 +30,7 @@ export default class Multiplayer {
 
     init() {
         $("#BUTTON_MP").on("click", () => {
-            $("#mpEntry").removeClass("invite");
+            $("#mpEntry").removeClass("invite running");
             this.showEntry();
         });
         // Enter joins: always from the code field, from the name field only on an invite link (no create choice there)
@@ -47,6 +48,7 @@ export default class Multiplayer {
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
         $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
         $("#BUTTON_MP_START").on("click", () => this.start());
+        $("#BUTTON_MP_WATCH").on("click", () => this.watchRunning());
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
         document.addEventListener("visibilitychange", () => this.onVisible());
@@ -97,6 +99,14 @@ export default class Multiplayer {
         if (!name) return;
         if (code.length !== 4) return this.toast("warning", "mp.errors.CODE");
         this.open({ type: "join", code, name, token: localStorage.getItem(`mp:${code}`) ?? undefined });
+    }
+
+    // too late to play: switch the same page to the watch view of that session
+    watchRunning() {
+        const code = this.runningCode;
+        $("#mpEntry").removeClass("running");
+        history.replaceState({}, "", `/?watch=${code}`);
+        this.watch(code);
     }
 
     watch(code) {
@@ -173,7 +183,7 @@ export default class Multiplayer {
         this.state = null;
         this.me = null;
         this.code = null;
-        $("body").removeClass("mp-active mp-host watch-mode");
+        $("body").removeClass("mp-active mp-host watch-mode mp-reveal");
         $("#mpBanner, #mpStatus, #mpRanking, #BUTTON_MP_ENDROUND").prop("hidden", true);
         this.app.INPUT_GUESS.prop("disabled", false);
     }
@@ -219,9 +229,16 @@ export default class Multiplayer {
     }
 
     onError(code) {
+        if (code === "GAME_RUNNING") {
+            // no toast: the entry form now explains it and offers to watch instead
+            this.runningCode = this.hello?.code;
+            this.stop();
+            $("#mpEntry").addClass("running");
+            return this.showEntry();
+        }
         this.toast("error", `mp.errors.${code}`);
         if (code === "SESSION_NOT_FOUND") localStorage.removeItem(`mp:${this.hello?.code}`);
-        const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "GAME_RUNNING", "SESSION_FULL", "SERVER_BUSY"].includes(code);
+        const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY"].includes(code);
         if (!rejected) return;
         // were in the session (server restart, dropped from the lobby) or came via a dead invite link: back to the menu
         if (this.state || $("#mpEntry").hasClass("invite")) return this.leave();
@@ -274,6 +291,7 @@ export default class Multiplayer {
         this.roundIndex = msg.index;
 
         app.selectedMode = this.state.settings.mode;
+        $("body").removeClass("mp-reveal");
         app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
         app.solutionMarker = null;
         if (msg.map) app.setupMap();
@@ -290,6 +308,7 @@ export default class Multiplayer {
         $("#BUTTON_MP_ENDROUND").prop("hidden", !this.isHost() || Boolean(msg.deadline));
 
         app.switchUI("game");
+        app.minimap.invalidateSize();
         app.setupHint();
         this.renderStatus();
         this.startCountdown(msg.deadline);
@@ -344,6 +363,8 @@ export default class Multiplayer {
         clearInterval(this.countdown);
         app.stopTimer();
         app.selectedMode = this.state.settings.mode;
+        // before any map sizing: on the big screen the reveal gives the map most of the width
+        $("body").addClass("mp-reveal");
 
         // fresh = we missed the round (reconnect straight into reveal)
         const fresh = app.currentGuess?.url !== solution.url;
@@ -373,7 +394,7 @@ export default class Multiplayer {
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => this.addOtherMarker(r));
-        app.focusOnSolution(latLng, app.selectedMode === "mapFinder" ? 3 : 6);
+        this.focusReveal(latLng, msg.results);
 
         if (mine) {
             $("#dist").text(mine.distance === null ? "—" : app.formatDistance(mine.distance));
@@ -397,6 +418,20 @@ export default class Multiplayer {
         app.BUTTON_NEXT.prop({ hidden: !this.isHost() || last, disabled: false });
         app.BUTTON_RESULTS.prop({ hidden: !this.isHost() || !last, disabled: false });
         $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", this.isHost());
+    }
+
+    /**
+     * Fit the solution and every submitted guess into view (the own guess alone is not enough, and a watcher has none)
+     */
+    focusReveal(solution, results) {
+        const mm = this.app.minimap;
+        const points = [solution, ...results.filter(r => r.lat !== null).map(r => this.toMap(r))];
+        if (points.length === 1) {
+            mm.flyTo(solution, this.app.selectedMode === "mapFinder" ? 3 : 6, { duration: 1.5 });
+            return;
+        }
+        // extra room on top for the name tooltips above the markers
+        mm.flyToBounds(new LatLngBounds(points), { paddingTopLeft: [60, 110], paddingBottomRight: [60, 40], maxZoom: 6, duration: 1.5 });
     }
 
     toMap({ lat, lng }) {

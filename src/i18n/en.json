@@ -59,6 +59,7 @@
         "rounds": "rounds",
         "waitingForHost": "Waiting for the host…",
         "waitingForPlayers": "Waiting for others ({{answered}}/{{total}})",
+        "gameRunning": "This game has already started. You can still watch it.",
         "reconnecting": "Reconnecting…",
         "showOnScreen": "Show on a big screen",
         "enterName": "Enter your name first",
@@ -67,7 +68,8 @@
             "join": "JOIN",
             "start": "START",
             "leave": "LEAVE",
-            "endRound": "END ROUND"
+            "endRound": "END ROUND",
+            "watch": "WATCH"
         },
         "errors": {
             "SESSION_NOT_FOUND": "Session not found",

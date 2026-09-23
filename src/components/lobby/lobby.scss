@@ -222,6 +222,9 @@ body.watch-mode {
     .mp-players li {
         font-size: 1.3em;
     }
+    #map_ui {
+        max-width: none;
+    }
     // the hint image is what the room looks at
     #rightSide {
         width: 45%;
@@ -237,6 +240,18 @@ body.watch-mode {
     }
     #mpFinalRanking li:first-child {
         font-size: 1.8em;
+    }
+}
+
+// reveal on the big screen: the map with everyone's guesses gets most of the room
+
+body.watch-mode.mp-reveal {
+    #gameWrapper {
+        gap: 1.5em;
+        padding: 1.5em 2em;
+    }
+    #rightSide {
+        width: 24%;
     }
 }
 
@@ -289,6 +304,24 @@ body.watch-mode {
             content: "";
             flex: 1;
             border-top: 1px solid #333;
+        }
+    }
+    #mpWatchOffer {
+        display: none;
+        flex-direction: column;
+        gap: 0.8em;
+        width: 100%;
+    }
+    // the game already started: offer to watch instead of joining
+    &.running {
+        #mpName,
+        #BUTTON_MP_CREATE,
+        .mp-divider,
+        .mp-join {
+            display: none;
+        }
+        #mpWatchOffer {
+            display: flex;
         }
     }
     // invite link: name + join only
