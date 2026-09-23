@@ -10,7 +10,8 @@ const URL_PATTERN = /^\/img\/[\w\-/.]+$/;
  */
 export function cleanName(name) {
     if (typeof name !== "string") return null;
-    const printable = [...name].filter(c => c >= " " && c !== "\u007f").join("");
+    // NFKC folds look-alike forms; \p{C} drops control, format (zero-width, bidi) and unassigned characters
+    const printable = name.normalize("NFKC").replace(/\p{C}/gu, "").replace(/\s+/g, " ");
     const clean = printable.trim().slice(0, 20).trim();
     return clean || null;
 }

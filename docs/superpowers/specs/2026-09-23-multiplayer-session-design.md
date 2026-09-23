@@ -102,7 +102,8 @@ JSON-Objekte der Form `{ type, ... }`.
 | `watch` | Beamer | `code` | jede |
 | `settings` | Host | `settings` | `lobby` |
 | `start` | Host | `guesses[]` | `lobby`, `final` (Nochmal) |
-| `answer` | Spieler | `lat, lng` (Spielkoordinaten) **oder** `mapName` | `round`, einmal pro Runde |
+| `answer` | Spieler | `index` (Runde, auf die sich die Antwort bezieht) und `lat, lng` (Spielkoordinaten) **oder** `mapName` | `round`, einmal pro Runde; `index` ≠ aktuelle Runde → `INVALID` |
+| `leave` | Spieler | – | jede: in der Lobby wird ein Nicht-Host entfernt (Name und Platz frei), sonst nur `connected = false` |
 | `endRound` | Host | – | `round` |
 | `next` | Host | – | `reveal` |
 | `lobby` | Host | – | `final` (zurück in die Lobby, Scores zurücksetzen) |
@@ -132,7 +133,7 @@ JSON-Objekte der Form `{ type, ... }`.
 ### Validierung (Vertrauensgrenze)
 
 - `maxPayload: 64 * 1024`.
-- `name`: String, getrimmt, 1–20 Zeichen.
+- `name`: String, NFKC-normalisiert, ohne Unicode-Kategorie C (Steuer-, Format-, Zero-Width-, Bidi-Zeichen), Leerraum zusammengefasst, getrimmt, 1–20 Zeichen.
 - `settings`: nur die erlaubten Werte oben.
 - `guesses[]`: 1–10 Einträge, jeweils `map` (bekannt in `MAPS`), `url` (String, beginnt mit `/img/`), `lat`/`lng` endliche Zahlen, `submitter` optionaler String ≤ 40 Zeichen; Länge muss `settings.rounds` entsprechen.
 - `answer`: `lat`/`lng` endliche Zahlen oder `mapName` String ≤ 40 Zeichen.

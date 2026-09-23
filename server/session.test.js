@@ -60,6 +60,7 @@ test("names are unique ignoring case, spaces and control chars", () => {
     const { s, last } = withGuest();
     const other = {};
     assert.equal(s.join(other, { name: " max\u0007" }), false);
+    assert.equal(s.join({}, { name: "Max\u200b" }), false);
     assert.equal(last(other, "error").code, "NAME_TAKEN");
 });
 
@@ -117,10 +118,10 @@ test("state is sent before round so clients know their answered flag", () => {
 
 test("round ends when every connected player answered", () => {
     const { s, host, guest, last } = started();
-    s.handle(host, { type: "answer", lat: 100, lng: 200 });
+    s.handle(host, { type: "answer", index: s.round, lat: 100, lng: 200 });
     assert.equal(s.phase, "round");
     assert.equal(last(guest, "state").players.find(p => p.name === "Hans").answered, true);
-    s.handle(guest, { type: "answer", lat: 100000, lng: 200 });
+    s.handle(guest, { type: "answer", index: s.round, lat: 100000, lng: 200 });
     assert.equal(s.phase, "reveal");
     const reveal = last(guest, "reveal");
     assert.deepEqual(reveal.solution, { map: "Narva", url: "/img/guesses/a.webp", lat: 100, lng: 200 });
@@ -135,7 +136,7 @@ test("round ends when every connected player answered", () => {
 test("a disconnected player does not block the round and scores 0", () => {
     const { s, host, guest, last } = started();
     s.disconnect(guest);
-    s.handle(host, { type: "answer", lat: 100, lng: 200 });
+    s.handle(host, { type: "answer", index: s.round, lat: 100, lng: 200 });
     assert.equal(s.phase, "reveal");
     const max = last(host, "reveal").results.find(r => r.name === "Max");
     assert.deepEqual([max.points, max.lat, max.distance], [0, null, null]);
@@ -154,11 +155,11 @@ test("deadline plus grace ends the round via tick", () => {
 test("answer inside the grace period counts, answer after reveal is rejected", () => {
     const { s, host, guest, last, advance } = started({ mode: "classic", timer: 15, rounds: 3 });
     advance(15500);
-    s.handle(guest, { type: "answer", lat: 100, lng: 200 });
-    s.handle(host, { type: "answer", lat: 100, lng: 200 });
+    s.handle(guest, { type: "answer", index: s.round, lat: 100, lng: 200 });
+    s.handle(host, { type: "answer", index: s.round, lat: 100, lng: 200 });
     assert.equal(s.phase, "reveal");
     assert.equal(last(guest, "reveal").results.find(r => r.name === "Max").points, 100);
-    s.handle(guest, { type: "answer", lat: 100, lng: 200 });
+    s.handle(guest, { type: "answer", index: s.round, lat: 100, lng: 200 });
     assert.equal(last(guest, "error").code, "INVALID");
     s.handle(host, { type: "next" });
     assert.equal(last(guest, "state").players.find(p => p.name === "Max").answered, false);
@@ -166,8 +167,8 @@ test("answer inside the grace period counts, answer after reveal is rejected", (
 
 test("a second answer in the same round is rejected", () => {
     const { s, host, last } = started();
-    s.handle(host, { type: "answer", lat: 1, lng: 1 });
-    s.handle(host, { type: "answer", lat: 100, lng: 200 });
+    s.handle(host, { type: "answer", index: s.round, lat: 1, lng: 1 });
+    s.handle(host, { type: "answer", index: s.round, lat: 100, lng: 200 });
     assert.equal(last(host, "error").code, "INVALID");
 });
 
@@ -179,8 +180,8 @@ test("host can end a round early", () => {
 
 test("mapFinder answers are scored by map name", () => {
     const { s, host, guest, last } = started({ mode: "mapFinder", timer: 0, rounds: 3 });
-    s.handle(host, { type: "answer", mapName: "narv" });
-    s.handle(guest, { type: "answer", mapName: "kohat" });
+    s.handle(host, { type: "answer", index: s.round, mapName: "narv" });
+    s.handle(guest, { type: "answer", index: s.round, mapName: "kohat" });
     const results = last(host, "reveal").results;
     assert.equal(results.find(r => r.name === "Hans").points, 100);
     assert.equal(results.find(r => r.name === "Max").points, 0);
@@ -202,7 +203,7 @@ test("reconnect during reveal gets reveal", () => {
     const { s, host, guest, last } = started();
     const token = last(guest, "welcome").token;
     s.disconnect(guest);
-    s.handle(host, { type: "answer", lat: 100, lng: 200 });
+    s.handle(host, { type: "answer", index: s.round, lat: 100, lng: 200 });
     const phone = {};
     s.join(phone, { token });
     assert.equal(last(phone, "reveal").index, 0);
@@ -211,8 +212,8 @@ test("reconnect during reveal gets reveal", () => {
 
 test("host reconnect keeps host role and score", () => {
     const { s, host, guest, last } = started();
-    s.handle(host, { type: "answer", lat: 100, lng: 200 });
-    s.handle(guest, { type: "answer", lat: 100, lng: 200 });
+    s.handle(host, { type: "answer", index: s.round, lat: 100, lng: 200 });
+    s.handle(guest, { type: "answer", index: s.round, lat: 100, lng: 200 });
     const token = last(host, "welcome").token;
     s.disconnect(host);
     const reloaded = {};
@@ -226,8 +227,8 @@ test("host reconnect keeps host role and score", () => {
 test("final ranking with a tie has two winners, lobby resets", () => {
     const { s, host, guest, last } = started();
     for (let i = 0; i < 3; i++) {
-        s.handle(host, { type: "answer", lat: GUESSES[i].lat, lng: GUESSES[i].lng });
-        s.handle(guest, { type: "answer", lat: GUESSES[i].lat, lng: GUESSES[i].lng });
+        s.handle(host, { type: "answer", index: s.round, lat: GUESSES[i].lat, lng: GUESSES[i].lng });
+        s.handle(guest, { type: "answer", index: s.round, lat: GUESSES[i].lat, lng: GUESSES[i].lng });
         s.handle(host, { type: "next" });
     }
     assert.equal(s.phase, "final");
@@ -247,7 +248,7 @@ test("watchers receive state and rounds but cannot act", () => {
     assert.equal(last(tv, "state").phase, "lobby");
     s.handle(host, { type: "start", guesses: GUESSES });
     assert.equal(last(tv, "round").index, 0);
-    s.handle(tv, { type: "answer", lat: 1, lng: 1 });
+    s.handle(tv, { type: "answer", index: s.round, lat: 1, lng: 1 });
     assert.equal(last(tv, "error").code, "INVALID");
 });
 
@@ -263,4 +264,48 @@ test("isIdle after inactivity", () => {
     assert.equal(s.isIdle(5000), false);
     advance(5000);
     assert.equal(s.isIdle(5000), true);
+});
+
+test("a late answer for the previous round is rejected and does not use up the next round", () => {
+    const { s, host, guest, last } = started();
+    s.handle(host, { type: "answer", index: 0, lat: 100, lng: 200 });
+    s.handle(host, { type: "endRound" });
+    s.handle(host, { type: "next" });
+    s.handle(guest, { type: "answer", index: 0, lat: 300, lng: 400 });
+    assert.equal(last(guest, "error").code, "INVALID");
+    s.handle(guest, { type: "answer", index: 1, lat: 300, lng: 400 });
+    s.handle(host, { type: "answer", index: 1, lat: 300, lng: 400 });
+    assert.equal(last(guest, "reveal").results.find(r => r.name === "Max").points, 100);
+});
+
+test("an answer without a round index is rejected", () => {
+    const { s, host, last } = started();
+    s.handle(host, { type: "answer", lat: 100, lng: 200 });
+    assert.equal(last(host, "error").code, "INVALID");
+});
+
+test("leaving the lobby frees the name and the slot", () => {
+    const { s, host, guest, last } = withGuest();
+    s.handle(guest, { type: "leave" });
+    assert.deepEqual(last(host, "state").players.map(p => p.name), ["Hans"]);
+    const again = {};
+    assert.equal(s.join(again, { name: "Max" }), true);
+});
+
+test("leaving a running game keeps the player's score but marks them offline", () => {
+    const { s, host, guest, last } = started();
+    s.handle(guest, { type: "leave" });
+    const max = last(host, "state").players.find(p => p.name === "Max");
+    assert.equal(max.connected, false);
+    s.handle(host, { type: "answer", index: 0, lat: 100, lng: 200 });
+    assert.equal(s.phase, "reveal");
+});
+
+test("the host leaving the lobby stays host (no host migration)", () => {
+    const { s, host, last } = withGuest();
+    const token = last(host, "welcome").token;
+    s.handle(host, { type: "leave" });
+    const back = {};
+    s.join(back, { token });
+    assert.equal(last(back, "welcome").isHost, true);
 });

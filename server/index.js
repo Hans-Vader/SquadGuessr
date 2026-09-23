@@ -70,6 +70,8 @@ export function startServer({ port = 3001, idleMs = IDLE_MS } = {}) {
             route(ws, msg);
         });
         ws.on("close", () => leaveCurrent(ws));
+        // oversized/malformed frames surface here; without a listener Node would crash the whole process
+        ws.on("error", () => ws.terminate());
     });
 
     const ticker = setInterval(() => {

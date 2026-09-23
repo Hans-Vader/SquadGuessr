@@ -14,6 +14,15 @@ test("cleanName trims, strips control chars and caps length", () => {
     assert.equal(cleanName(undefined), null);
 });
 
+test("cleanName removes invisible characters and collapses inner whitespace", () => {
+    assert.equal(cleanName("Bob\u0085"), "Bob");
+    assert.equal(cleanName("Bob\u200b"), "Bob");
+    assert.equal(cleanName("B\u202eob"), "Bob");
+    assert.equal(cleanName("Bo  b"), "Bo b");
+    assert.equal(cleanName("\uff22ob"), "Bob");
+    assert.equal(cleanName("\u200b\u200b"), null);
+});
+
 test("validSettings accepts only allowed values", () => {
     assert.equal(validSettings({ mode: "classic", timer: 0, rounds: 5 }), true);
     assert.equal(validSettings({ mode: "mapFinder", timer: 15, rounds: 10 }), true);

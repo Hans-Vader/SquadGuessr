@@ -82,6 +82,7 @@ export class Session {
         if (!player) return this.error(conn, "INVALID");
         this.touch();
         if (msg.type === "answer") return this.answer(player, msg);
+        if (msg.type === "leave") return this.leave(player);
         if (!HOST_ACTIONS.includes(msg.type)) return this.error(conn, "INVALID");
         if (player.id !== this.hostId) return this.error(conn, "NOT_HOST");
 
@@ -118,13 +119,29 @@ export class Session {
     }
 
     answer(player, msg) {
-        if (this.phase !== "round" || player.answers[this.round] || !validAnswer(msg, this.settings.mode)) {
+        // the index pins a late answer to its own round instead of the one currently running
+        if (this.phase !== "round" || msg.index !== this.round || player.answers[this.round] || !validAnswer(msg, this.settings.mode)) {
             return this.error(player.conn, "INVALID");
         }
         const answer = this.settings.mode === "classic"
             ? { lat: msg.lat, lng: msg.lng, mapName: null }
             : { lat: null, lng: null, mapName: msg.mapName };
         player.answers[this.round] = { ...answer, ...scoreAnswer(this.settings.mode, this.guesses[this.round], answer) };
+        this.broadcastState();
+        this.checkRoundEnd();
+    }
+
+    /**
+     * Explicit "leave": frees name and slot in the lobby; during a game the player stays in the ranking, offline.
+     * The host is never removed (no host migration), only marked offline.
+     */
+    leave(player) {
+        if (this.phase === "lobby" && player.id !== this.hostId) {
+            this.players.delete(player.id);
+        } else {
+            player.conn = null;
+            player.connected = false;
+        }
         this.broadcastState();
         this.checkRoundEnd();
     }

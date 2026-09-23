@@ -154,6 +154,7 @@ export default class Multiplayer {
     }
 
     leave() {
+        this.send({ type: "leave" });
         if (this.code) localStorage.removeItem(`mp:${this.code}`);
         this.stop();
         history.replaceState({}, "", "/");
@@ -245,6 +246,7 @@ export default class Multiplayer {
         const app = this.app;
         const me = this.state.players.find(p => p.id === this.me);
         this.answered = Boolean(me?.answered);
+        this.roundIndex = msg.index;
 
         app.selectedMode = this.state.settings.mode;
         app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
@@ -287,7 +289,7 @@ export default class Multiplayer {
         }
 
         this.answered = true;
-        this.send({ type: "answer", ...answer });
+        this.send({ type: "answer", index: this.roundIndex, ...answer });
         app.BUTTON_GUESS.prop({ hidden: true, disabled: true });
         this.renderStatus();
     }

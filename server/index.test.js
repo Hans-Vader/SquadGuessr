@@ -64,3 +64,22 @@ test("create, join by lowercase code, reject garbage", { timeout: 5000 }, async 
     stranger.close();
     wss.close();
 });
+
+test("an oversized frame does not crash the server", { timeout: 5000 }, async () => {
+    const wss = startServer({ port: 0 });
+    await once(wss, "listening");
+    const port = wss.address().port;
+
+    const attacker = client(port);
+    await once(attacker, "open");
+    attacker.send("x".repeat(70000));
+    await once(attacker, "close");
+
+    const host = client(port);
+    await once(host, "open");
+    host.sendJson({ type: "create", name: "Hans", settings: { mode: "classic", timer: 0, rounds: 3 } });
+    assert.equal((await host.next("welcome")).code.length, 4);
+
+    host.close();
+    wss.close();
+});
