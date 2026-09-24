@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.js";
+import { MAPS } from "../src/js/data/maps.js";
 
 const guess = (over = {}) => ({ map: "Narva", url: "/img/guesses/narva_1.webp", lat: 1.5, lng: -2, ...over });
 
@@ -35,6 +36,16 @@ test("validSettings accepts only allowed values", () => {
     assert.equal(validSettings({ mode: "hard", timer: 0, rounds: 5 }), false);
     assert.equal(validSettings({ mode: "classic", timer: 0, rounds: 7 }), false);
     assert.equal(validSettings(null), false);
+});
+
+test("validSettings accepts known excluded maps as long as one stays", () => {
+    const base = { mode: "classic", timer: 0, rounds: 5 };
+    assert.equal(validSettings({ ...base, excluded: [] }), true);
+    assert.equal(validSettings({ ...base, excluded: ["Narva", "Kohat"] }), true);
+    assert.equal(validSettings({ ...base, excluded: ["Atlantis"] }), false);
+    assert.equal(validSettings({ ...base, excluded: "Narva" }), false);
+    assert.equal(validSettings({ ...base, excluded: null }), false);
+    assert.equal(validSettings({ ...base, excluded: MAPS.map(m => m.name) }), false);
 });
 
 test("validGuesses checks count and every field", () => {

@@ -18,7 +18,7 @@
         // centered when it fits, scrollable from the top when it does not
         margin-block: auto;
     }
-    input {
+    input[type="text"] {
         width: 100%;
         padding: 0.8em;
         font-size: 1.1em;
@@ -58,6 +58,27 @@
     }
     #mpWatchLink {
         color: #aaa;
+    }
+    #mpMaps summary {
+        margin-top: 0.8em;
+        cursor: pointer;
+        text-transform: capitalize;
+    }
+    .mp-maps {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 0.3em 0.8em;
+        margin-top: 0.6em;
+        text-align: left;
+        label {
+            display: flex;
+            align-items: center;
+            gap: 0.4em;
+            cursor: pointer;
+        }
+        input {
+            accent-color: variables.$mainColor;
+        }
     }
 }
 

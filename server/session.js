@@ -319,6 +319,7 @@ export class Session {
     }
 }
 
-function pickSettings({ mode, timer, rounds }) {
-    return { mode, timer, rounds };
+// clients from before map exclusion send no `excluded`
+function pickSettings({ mode, timer, rounds, excluded = [] }) {
+    return { mode, timer, rounds, excluded };
 }

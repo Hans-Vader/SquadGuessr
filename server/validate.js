@@ -18,7 +18,13 @@ export function cleanName(name) {
 }
 
 export function validSettings(s) {
-    return Boolean(s) && MODES.includes(s.mode) && TIMERS.includes(s.timer) && ROUNDS.includes(s.rounds);
+    return Boolean(s) && MODES.includes(s.mode) && TIMERS.includes(s.timer) && ROUNDS.includes(s.rounds)
+        && (s.excluded === undefined || validExcluded(s.excluded));
+}
+
+// known map names only, and at least one map has to stay in the game
+function validExcluded(excluded) {
+    return Array.isArray(excluded) && excluded.length < MAPS.length && excluded.every(name => MAPS.some(m => m.name === name));
 }
 
 export function validGuesses(guesses, rounds) {

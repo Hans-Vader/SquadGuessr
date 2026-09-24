@@ -3,6 +3,8 @@ import { LatLngBounds } from "leaflet";
 import QRCode from "qrcode";
 import { guessMarker } from "./guessMarker.js";
 import { updateOffset } from "./clock.js";
+import { collectGuesses } from "./guesses.js";
+import { MAPS } from "./data/maps.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 
@@ -50,10 +52,21 @@ export default class Multiplayer {
         $("#BUTTON_MP_START").on("click", () => this.start());
         $("#BUTTON_MP_WATCH").on("click", () => this.watchRunning());
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
-        $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
+        $("#mpSettings").on("change", (e) => {
+            // at least one map has to stay in the game
+            if (!$("#mpMaps input:checked").length) e.target.checked = true;
+            const settings = this.readSettings();
+            localStorage.setItem("mp:excluded", settings.excluded.join(","));
+            this.send({ type: "settings", settings });
+        });
         document.addEventListener("visibilitychange", () => this.onVisible());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
+        const excluded = localStorage.getItem("mp:excluded")?.split(",") ?? [];
+        $("#mpMaps .mp-maps").append(MAPS.map(m => $("<label>").append(
+            $("<input type=\"checkbox\">").val(m.name).prop("checked", !excluded.includes(m.name)),
+            $("<span>").text(m.name)
+        )));
 
         const params = new URLSearchParams(location.search);
         const watch = params.get("watch");
@@ -85,6 +98,7 @@ export default class Multiplayer {
             mode: $("#mpMode").val(),
             timer: Number($("#mpTimer").val()),
             rounds: Number($("#mpRounds").val()),
+            excluded: $("#mpMaps input:not(:checked)").map((_, el) => el.value).get(),
         };
     }
 
@@ -118,7 +132,8 @@ export default class Multiplayer {
     start() {
         const $button = $("#BUTTON_MP_START");
         this.app.setButtonLoading($button, true);
-        this.app.getGuess(this.state.settings.rounds)
+        const { rounds, excluded } = this.state.settings;
+        collectGuesses(() => this.app.getGuess(10), rounds, excluded)
             .then(guesses => this.send({ type: "start", guesses }))
             .catch(() => this.toast("error", "mp.errors.GUESSES"))
             .finally(() => this.app.setButtonLoading($button, false));
@@ -260,6 +275,8 @@ export default class Multiplayer {
         $("#mpMode").val(s.settings.mode);
         $("#mpTimer").val(String(s.settings.timer));
         $("#mpRounds").val(String(s.settings.rounds));
+        $("#mpMaps input").each((_, el) => { el.checked = !s.settings.excluded.includes(el.value); });
+        $("#mpMapsCount").text(`${MAPS.length - s.settings.excluded.length}/${MAPS.length}`);
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
@@ -484,11 +501,12 @@ export default class Multiplayer {
         });
     }
 
-    describeSettings({ mode, timer, rounds }) {
+    describeSettings({ mode, timer, rounds, excluded }) {
         const t = (key) => i18next.t(key, { ns: "common" });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timed"), 15: t("timer.rush") }[timer];
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}`;
+        const maps = excluded.length ? ` · ${MAPS.length - excluded.length}/${MAPS.length} ${t("mp.maps")}` : "";
+        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${maps}`;
     }
 
     showEntry() {

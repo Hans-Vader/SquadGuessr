@@ -40,7 +40,7 @@ test("create makes the creator host and player", () => {
     const state = last(host, "state");
     assert.equal(state.phase, "lobby");
     assert.deepEqual(state.players.map(p => p.name), ["Hans"]);
-    assert.deepEqual(state.settings, CLASSIC);
+    assert.deepEqual(state.settings, { ...CLASSIC, excluded: [] });
 });
 
 test("create rejects invalid settings", () => {
@@ -88,8 +88,8 @@ test("only the host may control the game", () => {
 
 test("host can change settings in the lobby", () => {
     const { s, host, guest, last } = withGuest();
-    s.handle(host, { type: "settings", settings: { mode: "mapFinder", timer: 15, rounds: 5 } });
-    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 15, rounds: 5 });
+    s.handle(host, { type: "settings", settings: { mode: "mapFinder", timer: 15, rounds: 5, excluded: ["Narva"] } });
+    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 15, rounds: 5, excluded: ["Narva"] });
 });
 
 test("start rejects guesses that do not match settings.rounds", () => {
