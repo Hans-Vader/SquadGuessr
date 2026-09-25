@@ -30,8 +30,15 @@ test("mapNameMatches tolerates case, spaces and small typos", () => {
     assert.equal(mapNameMatches("kohat", "Narva"), false);
 });
 
+test("mapNameMatches accepts the full official map names", () => {
+    const official = [["Kohat Toi", "Kohat"], ["Kamdesh Highlands", "Kamdesh"], ["Sumari Bala", "Sumari"], ["Tallil Outskirts", "Tallil"],
+        ["Fallujah City", "Fallujah"], ["Narva (Flooded)", "Narva_f"], ["Fool's Road", "FoolsRoad"], ["Jensen's Range", "Jensen"],
+        ["Pacific Proving Grounds", "Pacific"], ["Kohta Toi", "Kohat"]];
+    official.forEach(([answer, map]) => assert.equal(mapNameMatches(answer, map), true, answer));
+});
+
 test("mapNameMatches cannot be gamed by listing several maps", () => {
-    assert.equal(mapNameMatches("narva kohat gorodok anvil belaya chora", "Narva"), false);
+    assert.equal(mapNameMatches("kohat gorodok anvil belaya chora narva", "Narva"), false);
     assert.equal(mapNameMatches("narva kohat", "Kohat"), false);
 });
 
@@ -53,5 +60,5 @@ test("scoreAnswer classic and mapFinder", () => {
     assert.equal(scoreAnswer("classic", guess, { lat: 100000, lng: 200 }).points, 0);
     assert.deepEqual(scoreAnswer("mapFinder", guess, { mapName: "narv" }), { distance: null, points: 100 });
     assert.equal(scoreAnswer("mapFinder", guess, { mapName: "gorodok" }).points, 0);
-    assert.equal(scoreAnswer("mapFinder", guess, { mapName: "narva kohat gorodok anvil belaya chora" }).points, 0);
+    assert.equal(scoreAnswer("mapFinder", guess, { mapName: "kohat gorodok anvil belaya chora narva" }).points, 0);
 });

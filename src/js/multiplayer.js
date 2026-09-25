@@ -176,6 +176,8 @@ export default class Multiplayer {
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
         this.answered = false;
+        this.roundIndex = null;
+        this.revealIndex = null;
         this.app.selectMode($(".mode-card.selected").data("mode") || "classic");
         const ws = this.ws;
         this.ws = null;
@@ -190,7 +192,8 @@ export default class Multiplayer {
 
     leave() {
         this.send({ type: "leave" });
-        if (this.code) localStorage.removeItem(`mp:${this.code}`);
+        // a big-screen tab never held a player token: it must not drop the one the player tab next to it uses
+        if (this.code && !this.watching) localStorage.removeItem(`mp:${this.code}`);
         this.stop();
         history.replaceState({}, "", "/");
         this.app.switchUI("menu");
@@ -236,6 +239,13 @@ export default class Multiplayer {
             $("#mpEntry").addClass("running");
             return this.showEntry();
         }
+        if (code === "REPLACED") {
+            // the same player went on in another tab or on another device, which keeps using the stored token
+            this.stop();
+            history.replaceState({}, "", "/");
+            this.app.switchUI("menu");
+            return this.toast("warning", "mp.errors.REPLACED");
+        }
         this.toast("error", `mp.errors.${code}`);
         if (code === "SESSION_NOT_FOUND") localStorage.removeItem(`mp:${this.hello?.code}`);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY"].includes(code);
@@ -270,9 +280,19 @@ export default class Multiplayer {
         if (s.phase === "lobby") this.showRoom();
     }
 
+    /**
+     * Status line and host controls, from the state alone: a player who becomes host mid-game gets the controls at once
+     */
     renderStatus() {
         const s = this.state;
-        if (!s || s.phase !== "round") return;
+        if (!s) return;
+        const host = this.isHost();
+        const last = s.round + 1 === s.total;
+        $("#BUTTON_MP_ENDROUND").prop("hidden", s.phase !== "round" || !host || s.settings.timer > 0);
+        this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
+        this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !host || !last, disabled: false });
+        if (s.phase === "reveal") $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", host);
+        if (s.phase !== "round") return;
         const online = s.players.filter(p => p.connected);
         const text = i18next.t("mp.waitingForPlayers", {
             ns: "common",
@@ -288,28 +308,31 @@ export default class Multiplayer {
         const app = this.app;
         const me = this.state.players.find(p => p.id === this.me);
         this.answered = Boolean(me?.answered);
+        // a reconnect resends the running round: keep the marker placed / the name typed but not sent yet
+        const resent = msg.index === this.roundIndex && app.currentGuess?.url === msg.url;
         this.roundIndex = msg.index;
 
         app.selectedMode = this.state.settings.mode;
         $("body").removeClass("mp-reveal");
-        app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
-        app.solutionMarker = null;
-        if (msg.map) app.setupMap();
-        else app.minimap.clear();
+        if (!resent) {
+            app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
+            app.solutionMarker = null;
+            if (msg.map) app.setupMap();
+            else app.minimap.clear();
+            app.INPUT_GUESS.val("");
+        }
 
         $("#gameWrapper").toggleClass("no-map", !msg.map);
         $("#text").css("visibility", "hidden");
         $("#mpRanking").prop("hidden", true);
         $("#round").text(`${msg.index + 1}/${msg.total}`);
-        app.INPUT_GUESS.val("").prop({ hidden: false, disabled: this.answered });
-        app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered, disabled: true });
-        app.BUTTON_NEXT.prop("hidden", true);
-        app.BUTTON_RESULTS.prop("hidden", true);
-        $("#BUTTON_MP_ENDROUND").prop("hidden", !this.isHost() || Boolean(msg.deadline));
+        app.INPUT_GUESS.prop({ hidden: false, disabled: this.answered });
+        const unsent = app.minimap.guessMarker || app.INPUT_GUESS.val().trim();
+        app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered, disabled: !unsent });
 
         app.switchUI("game");
         app.minimap.invalidateSize();
-        app.setupHint();
+        if (!resent) app.setupHint();
         this.renderStatus();
         this.startCountdown(msg.deadline);
     }
@@ -359,6 +382,9 @@ export default class Multiplayer {
         const app = this.app;
         const mm = app.minimap;
         const { solution } = msg;
+        // a reconnect resends the reveal: it is already on screen (drawing it again would stack every marker)
+        if (msg.index === this.revealIndex && app.currentGuess?.url === solution.url) return;
+        this.revealIndex = msg.index;
 
         clearInterval(this.countdown);
         app.stopTimer();
@@ -415,13 +441,9 @@ export default class Multiplayer {
         this.renderRanking($("#mpRanking"), msg.results);
         $("#mpRanking").prop("hidden", false);
 
-        const last = msg.index + 1 === msg.total;
         app.INPUT_GUESS.prop("hidden", true);
         app.BUTTON_GUESS.prop("hidden", true);
-        $("#BUTTON_MP_ENDROUND").prop("hidden", true);
-        app.BUTTON_NEXT.prop({ hidden: !this.isHost() || last, disabled: false });
-        app.BUTTON_RESULTS.prop({ hidden: !this.isHost() || !last, disabled: false });
-        $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", this.isHost());
+        this.renderStatus();
     }
 
     /**

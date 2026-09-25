@@ -50,11 +50,14 @@ export function levenshtein(a, b) {
 
 /**
  * Does a typed answer name this map? Case, spaces, "_" and up to 2 typos are forgiven.
- * The whole answer is compared, so listing several maps in one answer does not match any of them.
+ * Official names go on after the map id ("Kohat Toi", "Narva Flooded"), so the answer may too; but only its start counts,
+ * so listing several maps in one answer matches the first of them at most.
  */
 export function mapNameMatches(answer, mapName) {
     const compact = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return levenshtein(compact(answer), compact(mapName)) <= 2;
+    const typed = compact(answer);
+    const name = compact(mapName);
+    return Array.from({ length: typed.length + 1 }, (_, i) => typed.slice(0, i)).some(start => levenshtein(start, name) <= 2);
 }
 
 export function distance(a, b) {

@@ -80,7 +80,8 @@
             "INVALID": "Invalid request",
             "GUESSES": "Could not load guesses",
             "CODE": "Enter the 4-character code",
-            "SERVER_BUSY": "Too many sessions right now, try again later"
+            "SERVER_BUSY": "Too many sessions right now, try again later",
+            "REPLACED": "You went on playing in another tab or on another device"
         }
     },
     "desc": "Find where the screenshot has been taken"

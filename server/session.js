@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { scoreAnswer } from "../src/js/scoring.js";
+import { scoreAnswer, mapSize } from "../src/js/scoring.js";
 import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.js";
 
 export const MAX_PLAYERS = 12;
 export const MAX_WATCHERS = 20;
 export const GRACE_MS = 1000;
+export const RECONNECT_MS = 15 * 1000;
 
 const HOST_ACTIONS = ["settings", "start", "endRound", "next", "lobby"];
 
@@ -43,15 +44,18 @@ export class Session {
     }
 
     join(conn, { name, token }) {
-        this.touch();
         const known = token ? this.findPlayer(p => p.token === token) : null;
         if (known) return this.reconnect(known, conn);
         if (this.phase !== "lobby") return this.error(conn, "GAME_RUNNING");
-        if (this.players.size >= MAX_PLAYERS) return this.error(conn, "SESSION_FULL");
         const clean = cleanName(name);
         if (!clean) return this.error(conn, "INVALID");
-        if (this.findPlayer(p => p.name.toLowerCase() === clean.toLowerCase())) return this.error(conn, "NAME_TAKEN");
+        const same = this.findPlayer(p => p.name.toLowerCase() === clean.toLowerCase());
+        if (same?.connected) return this.error(conn, "NAME_TAKEN");
+        // someone who dropped out of the lobby may come back without their token (other device, other tab): same name, their place
+        if (same) this.players.delete(same.id);
+        if (this.players.size >= MAX_PLAYERS) return this.error(conn, "SESSION_FULL");
         const player = this.addPlayer(conn, clean);
+        if (same?.id === this.hostId) this.hostId = player.id;
         this.welcome(player);
         this.broadcastState();
         return true;
@@ -70,16 +74,12 @@ export class Session {
         this.watchers.delete(conn);
         const player = this.playerByConn(conn);
         if (!player) return;
-        // in the lobby a vanished guest just frees name and slot (they can simply join again);
-        // the host and anyone in a running game stay, so they can come back with their token
-        if (this.phase === "lobby" && player.id !== this.hostId) {
-            this.players.delete(player.id);
-        } else {
-            player.conn = null;
-            player.connected = false;
-        }
+        // a dropped connection is mostly a reload, a locked phone or a network switch: the player keeps their place
+        // (and for a moment still counts for the round and the host role) so they can come back with their token
+        player.conn = null;
+        player.connected = false;
+        player.awayUntil = this.now() + RECONNECT_MS;
         this.broadcastState();
-        this.checkRoundEnd();
     }
 
     // ===== ACTIONS =====
@@ -130,8 +130,10 @@ export class Session {
         if (this.phase !== "round" || msg.index !== this.round || player.answers[this.round] || !validAnswer(msg, this.settings.mode)) {
             return this.error(player.conn, "INVALID");
         }
+        const size = mapSize(this.guesses[this.round].map);
+        // kept on the map like the client's marker: absurd coordinates would break the reveal on every screen
         const answer = this.settings.mode === "classic"
-            ? { lat: msg.lat, lng: msg.lng, mapName: null }
+            ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
             : { lat: null, lng: null, mapName: msg.mapName };
         player.answers[this.round] = { ...answer, ...scoreAnswer(this.settings.mode, this.guesses[this.round], answer) };
         this.broadcastState();
@@ -140,25 +142,24 @@ export class Session {
 
     /**
      * Explicit "leave": frees name and slot in the lobby; during a game the player stays in the ranking, offline.
-     * A leaving host hands the role to the next connected player, otherwise nobody could continue the game.
+     * Unlike a dropped connection it takes effect at once: a leaving host hands the role over right away.
      */
     leave(player) {
-        if (player.id === this.hostId) {
-            this.hostId = this.findPlayer(p => p.connected && p.id !== player.id)?.id ?? null;
-        }
         if (this.phase === "lobby") {
             this.players.delete(player.id);
         } else {
             player.conn = null;
             player.connected = false;
+            player.awayUntil = 0;
         }
+        this.fixHost();
         this.broadcastState();
         this.checkRoundEnd();
     }
 
     checkRoundEnd() {
         if (this.phase !== "round") return;
-        const waiting = [...this.players.values()].some(p => p.connected && !p.answers[this.round]);
+        const waiting = [...this.players.values()].some(p => this.isPresent(p) && !p.answers[this.round]);
         if (!waiting) this.endRound();
     }
 
@@ -189,12 +190,30 @@ export class Session {
         this.phase = "lobby";
         this.guesses = [];
         this.round = 0;
+        // whoever left or dropped out during the game does not haunt the next one (coming back simply joins again)
+        this.players.forEach(p => { if (!p.connected) this.players.delete(p.id); });
         this.resetScores();
         this.broadcastState();
     }
 
     tick() {
-        if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) this.endRound();
+        if (this.fixHost()) this.broadcastState();
+        if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) return this.endRound();
+        // someone who dropped out and did not come back in time stops holding up the round
+        this.checkRoundEnd();
+    }
+
+    /**
+     * Once the host left, or has been gone for longer than a reload takes, a connected player takes over;
+     * with nobody connected the role waits for whoever comes (back) first. True if the host changed.
+     */
+    fixHost() {
+        const host = this.players.get(this.hostId);
+        if (host && this.isPresent(host)) return false;
+        const next = this.findPlayer(p => p.connected);
+        if (!next) return false;
+        this.hostId = next.id;
+        return true;
     }
 
     /**
@@ -264,12 +283,14 @@ export class Session {
     // ===== HELPERS =====
 
     addPlayer(conn, name) {
-        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, score: 0, answers: [] };
+        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [] };
         this.players.set(player.id, player);
         return player;
     }
 
     reconnect(player, conn) {
+        // same token from another tab or device: the old connection is told instead of silently going deaf
+        if (player.conn && player.conn !== conn) this.error(player.conn, "REPLACED");
         player.conn = conn;
         player.connected = true;
         this.welcome(player);
@@ -306,6 +327,13 @@ export class Session {
         return false;
     }
 
+    /**
+     * Connected, or dropped a moment ago and probably reconnecting
+     */
+    isPresent(player) {
+        return player.connected || this.now() < player.awayUntil;
+    }
+
     playerByConn(conn) {
         return this.findPlayer(p => p.conn === conn);
     }
@@ -321,4 +349,8 @@ export class Session {
 
 function pickSettings({ mode, timer, rounds }) {
     return { mode, timer, rounds };
+}
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
 }

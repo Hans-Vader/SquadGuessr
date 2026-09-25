@@ -8,13 +8,19 @@ server {
     server_name _;
     root /usr/share/nginx/html;
 
+    # upstreams in variables are looked up per request (Docker's DNS), not once at startup: nginx starts while mp is down
+    # and follows mp to its new IP when only that container is recreated
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $mp http://mp:3001;
+    set $api ${API_URL};
+
     location / {
         try_files $uri $uri/ /index.html;
     }
 
     # multiplayer websocket
     location = /mp {
-        proxy_pass http://mp:3001;
+        proxy_pass $mp;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -23,7 +29,7 @@ server {
 
     # guesses and images come from the SquadGuessr API (like the webpack dev proxy)
     location /api/ {
-        proxy_pass ${API_URL};
+        proxy_pass $api;
         proxy_ssl_server_name on;
         proxy_set_header X-API-Key "${API_KEY}";
     }
