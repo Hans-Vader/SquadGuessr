@@ -6,6 +6,8 @@ import SquadSettings from "./squadSettings.js";
 import packageInfo from "../../package.json";
 import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
+import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
+import Multiplayer from "./multiplayer.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -34,6 +36,7 @@ export default class SquadGuessr {
         this.currentGuess = null;
         this.timerInterval = null;
         this.session = false;
+        this.mp = new Multiplayer(this);
     }
 
     initializeElements() {
@@ -57,6 +60,7 @@ export default class SquadGuessr {
         this.setupEventListeners();
         console.log(`SquadGuessr v${this.version} Loaded!`);
         this.switchUI("menu");
+        this.mp.init();
     }
 
     initializeCore() {
@@ -134,19 +138,20 @@ export default class SquadGuessr {
 
         this.BUTTON_NEWGAME.on("click", () => this.startNewGame());
         this.BUTTON_GUESS.on("click", () => this.handleGuess());
-        this.BUTTON_NEXT.on("click", () => this.loadNextGuess());
-        this.BUTTON_RESULTS.on("click", () => this.showResults());
+        this.BUTTON_NEXT.on("click", () => this.mp.active ? this.mp.send({ type: "next" }) : this.loadNextGuess());
+        this.BUTTON_RESULTS.on("click", () => this.mp.active ? this.mp.send({ type: "next" }) : this.showResults());
 
     }
 
     setupNavigationButtons() {
         this.BUTTON_TIMER.on("click", () => { this.switchUI("timer"); });
-        this.BUTTON_MENU.on("click", () => { this.switchUI("menu"); });
+        this.BUTTON_MENU.on("click", () => { this.mp.active ? this.mp.leave() : this.switchUI("menu"); });
         this.BUTTON_BACK.on("click", () => { this.switchUI("menu"); });
-        this.BUTTON_PLAYAGAIN.on("click", () => this.startNewGame());
+        this.BUTTON_PLAYAGAIN.on("click", () => this.mp.active ? this.mp.send({ type: "lobby" }) : this.startNewGame());
         this.BUTTON_SHARE.on("click", () => this.copyResults());
         this.MAIN_LOGO.on("click", () => {
             this.stopTimer();
+            if (this.mp.active) return this.mp.leave();
             this.switchUI("menu");
         });
     }
@@ -235,7 +240,8 @@ export default class SquadGuessr {
         this.score = 0;
 
         $("#totalPoints").html(0);
-        this.INPUT_GUESS.val("");
+        // a previous game (or a multiplayer round) may have hidden or disabled the map name input
+        this.INPUT_GUESS.val("").prop({ hidden: false, disabled: false });
 
         this.BUTTON_NEXT.prop("hidden", false);
         this.BUTTON_GUESS.prop("hidden", false);
@@ -332,10 +338,10 @@ export default class SquadGuessr {
             $hint.attr("src", `/api/v2${this.currentGuess.url}`);
 
             if (this.currentGuess.submitter) {
-                $("#submitter").html(i18next.t("game.hintBy", { ns: "common" }) + " " + this.currentGuess.submitter);
+                $("#submitter").text(i18next.t("game.hintBy", { ns: "common" }) + " " + this.currentGuess.submitter);
             }
             else {
-                $("#submitter").html("");
+                $("#submitter").text("");
             }
            
 
@@ -368,6 +374,7 @@ export default class SquadGuessr {
     }
 
     handleGuess() {
+        if (this.mp.active) return this.mp.submitAnswer();
         if (!this.currentGuess) return;
 
         this.stopTimer();
@@ -385,13 +392,8 @@ export default class SquadGuessr {
     }
 
     handleMapGuess() {
-        let points = 0;
-        let icon = "❌";
-
-        if (this.levenshtein(this.INPUT_GUESS.val(), this.currentGuess.map) <= 2) {
-            points = 100;
-            icon = "✅";
-        }
+        const { points } = scoreAnswer("mapFinder", this.currentGuess, { mapName: this.INPUT_GUESS.val() });
+        const icon = points ? "✅" : "❌";
 
         let mapName = this.currentGuess.map;
         mapName = mapName.charAt(0).toUpperCase() + mapName.slice(1);
@@ -407,38 +409,6 @@ export default class SquadGuessr {
         this.minimap.invalidateSize();
         this.createSolutionMarker(solutionLatLng);
         this.focusOnSolution(solutionLatLng, 3);
-    }
-
-
-
-    levenshtein(a, b) {
-
-        function normalize(str) { return str.toLowerCase().trim().replace(/\s+/g, " "); }
-
-        a = normalize(a);
-        b = normalize(b);
-
-        // Direct compact match
-        if (a.replace(/\s/g, "") === b) return 0;
-
-        const words = a.split(" ");
-        let best = Infinity;
-
-        for (const word of words) {
-            const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
-            for (let j = 0; j <= word.length; j++) matrix[0][j] = j;
-            for (let i = 1; i <= b.length; i++) {
-                for (let j = 1; j <= word.length; j++) {
-                    matrix[i][j] = Math.min(
-                        matrix[i - 1][j] + 1,
-                        matrix[i][j - 1] + 1,
-                        matrix[i - 1][j - 1] + (b[i - 1] === word[j - 1] ? 0 : 1)
-                    );
-                }
-            }
-            best = Math.min(best, matrix[b.length][word.length]);
-        }
-        return best;
     }
 
 
@@ -549,22 +519,27 @@ export default class SquadGuessr {
         const uiStates = {
             menu: {
                 show: ["#menu", "#footerLogos"],
-                hide: ["#map_ui", "#timer_ui", "#results"],
+                hide: ["#map_ui", "#timer_ui", "#results", "#lobby"],
                 scoreHidden: true
             },
             timer: {
                 show: ["#timer_ui", "#footerLogos"],
-                hide: ["#menu", "#map_ui", "#results"],
+                hide: ["#menu", "#map_ui", "#results", "#lobby"],
                 scoreHidden: true
             },
             game: {
                 show: ["#map_ui"],
-                hide: ["#menu", "#timer_ui", "#results", "#footerLogos"],
+                hide: ["#menu", "#timer_ui", "#results", "#footerLogos", "#lobby"],
                 scoreHidden: false
             },
             results: {
                 show: ["#results", "#footerLogos"],
-                hide: ["#map_ui", "#timer_ui", "#menu"],
+                hide: ["#map_ui", "#timer_ui", "#menu", "#lobby"],
+                scoreHidden: true
+            },
+            lobby: {
+                show: ["#lobby", "#footerLogos"],
+                hide: ["#map_ui", "#timer_ui", "#menu", "#results"],
                 scoreHidden: true
             }
         };
@@ -710,74 +685,17 @@ export default class SquadGuessr {
 
 
     getSolutionDistance() {
-        const solutionLatLng = [this.currentGuess.lat, this.currentGuess.lng];
-        const guessLatLng = [
-            this.minimap.guessMarker.getLatLng().lat * this.minimap.mapToGameScale,
-            this.minimap.guessMarker.getLatLng().lng * this.minimap.mapToGameScale
-        ];
-
-        const dx = solutionLatLng[1] - guessLatLng[1];
-        const dy = solutionLatLng[0] - guessLatLng[0];
-
-        return Math.sqrt(dx * dx + dy * dy);
+        const scale = this.minimap.mapToGameScale;
+        const guess = this.minimap.guessMarker.getLatLng();
+        return distance(this.currentGuess, { lat: guess.lat * scale, lng: guess.lng * scale });
     }
 
 
     getPoints(distance) {
-        // base thresholds for a 3000x3000 map
-        const baseSteps = [
-            { maxDistance: 20, points: 100, icon: "! 💯" },
-            { maxDistance: 50, points: 80, icon: "! 🌟" },
-            { maxDistance: 100, points: 60, icon: "👏🏼" },
-            { maxDistance: 200, points: 40, icon: "👍🏼" },
-            { maxDistance: 300, points: 20, icon: "😐" },
-            { maxDistance: 500, points: 10, icon: ".. 🤨" },
-        ];
-        const mapSize = this.minimap.activeMap.size;
-        const scale = mapSize / 3000; // 1 for base map, >1 for bigger maps, <1 for smaller
-
-        // scale thresholds
-        const steps = baseSteps.map(s => ({
-            maxDistance: s.maxDistance * scale,
-            points: s.points,
-            icon: s.icon
-        }));
-
-        let points;
-        let icon = ""; // Add this to track the icon
-
-        if (distance <= steps[0].maxDistance) {
-            points = steps[0].points;
-            icon = steps[0].icon;
-        } else if (distance > steps[steps.length - 1].maxDistance) {
-            points = 0;
-            icon = "... ❌"; // Or whatever icon you want for 0 points
-        } else {
-            points = this.interpolatePoints(distance, steps);
-            // Find the appropriate icon based on distance
-            icon = steps.find(s => distance <= s.maxDistance)?.icon || "";
-        }
-
+        const { points, icon } = pointsForDistance(distance, this.minimap.activeMap.size);
         this.gameData[this.gamePhase - 1].points = points;
         $("#mapName").html(`${points} ${i18next.t("shared.points", { ns: "common" })} ${icon}`).fadeIn();
         return points;
-    }
-
-
-    interpolatePoints(distance, steps) {
-        for (let i = 1; i < steps.length; i++) {
-            if (distance <= steps[i].maxDistance) {
-                const prevStep = steps[i - 1];
-                const currStep = steps[i];
-
-                const distanceRange = currStep.maxDistance - prevStep.maxDistance;
-                const pointsRange = currStep.points - prevStep.points;
-                const distanceIntoRange = distance - prevStep.maxDistance;
-
-                return Math.round(prevStep.points + (pointsRange * distanceIntoRange / distanceRange));
-            }
-        }
-        return 0;
     }
 
     formatDistance(meters) {
@@ -792,9 +710,9 @@ export default class SquadGuessr {
         this.solutionMarker = new solutionMarker(latLng, {}, this).addTo(this.minimap.markersGroup);
     }
 
-    drawSolutionDistance(latLng) {
+    drawSolutionDistance(latLng, from = this.minimap.guessMarker.getLatLng()) {
         new Polyline(
-            [this.minimap.guessMarker.getLatLng(), latLng],
+            [from, latLng],
             {
                 color: "#ff4d4d",
                 weight: 3,

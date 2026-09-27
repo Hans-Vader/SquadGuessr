@@ -49,5 +49,40 @@
         "discord": "Join the Discord",
         "points": "Points"
     },
+    "mp": {
+        "play": "PLAY WITH FRIENDS",
+        "title": "Play with friends",
+        "namePlaceholder": "Your name",
+        "codePlaceholder": "CODE",
+        "orJoin": "or join a session",
+        "code": "Code",
+        "rounds": "rounds",
+        "waitingForHost": "Waiting for the host…",
+        "waitingForPlayers": "Waiting for others ({{answered}}/{{total}})",
+        "gameRunning": "This game has already started. You can still watch it.",
+        "reconnecting": "Reconnecting…",
+        "showOnScreen": "Show on a big screen",
+        "enterName": "Enter your name first",
+        "buttons": {
+            "create": "CREATE SESSION",
+            "join": "JOIN",
+            "start": "START",
+            "leave": "LEAVE",
+            "endRound": "END ROUND",
+            "watch": "WATCH"
+        },
+        "errors": {
+            "SESSION_NOT_FOUND": "Session not found",
+            "NAME_TAKEN": "This name is already taken",
+            "GAME_RUNNING": "The game has already started",
+            "SESSION_FULL": "The session is full",
+            "NOT_HOST": "Only the host can do that",
+            "INVALID": "Invalid request",
+            "GUESSES": "Could not load guesses",
+            "CODE": "Enter the 4-character code",
+            "SERVER_BUSY": "Too many sessions right now, try again later",
+            "REPLACED": "You went on playing in another tab or on another device"
+        }
+    },
     "desc": "Find where the screenshot has been taken"
 }

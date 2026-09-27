@@ -361,3 +361,22 @@
         pointer-events: none;
     }
 }
+
+
+// multiplayer host: GUESS and END ROUND share one row, so the host's controls are exactly as tall as a guest's
+@media (width > 768px) {
+    body.mp-host #rightSide #actions {
+        flex-direction: row;
+        #BUTTON_GUESS {
+            flex: 1 1 0;
+            min-width: 0;
+        }
+        #BUTTON_MP_ENDROUND {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 0 0.5em;
+            font-size: 1em;
+            white-space: nowrap;
+        }
+    }
+}

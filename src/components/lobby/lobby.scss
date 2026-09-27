@@ -1,0 +1,376 @@
+@use "../shared/variables";
+
+#lobby {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1em;
+    // scroll instead of clipping under header/footer on small phones
+    overflow-y: auto;
+    #mpEntry,
+    #mpRoom {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1em;
+        width: min(420px, 100%);
+        // centered when it fits, scrollable from the top when it does not
+        margin-block: auto;
+    }
+    input {
+        width: 100%;
+        padding: 0.8em;
+        font-size: 1.1em;
+        background: #1a1a1a;
+        border: 2px solid #333;
+        border-radius: 12px;
+    }
+    #mpCode {
+        text-transform: uppercase;
+    }
+    .mp-join {
+        display: flex;
+        gap: 0.5em;
+        width: 100%;
+    }
+    .mp-code strong {
+        display: block;
+        font-family: variables.$logoFont;
+        font-size: 3em;
+        letter-spacing: 0.2em;
+    }
+    #mpQr {
+        background: #fff;
+        border-radius: 8px;
+        image-rendering: pixelated;
+    }
+    #mpJoinUrl {
+        font-size: 0.8em;
+        opacity: 0.7;
+        word-break: break-all;
+    }
+    select {
+        background: #272727;
+        padding: 0.6em;
+        border-radius: 10px;
+        font-size: 1em;
+    }
+    #mpWatchLink {
+        color: #aaa;
+    }
+}
+
+#lobby [hidden],
+#mpBanner[hidden],
+#mpStatus[hidden],
+#mpRanking[hidden],
+#BUTTON_MP_ENDROUND[hidden] {
+    display: none !important;
+}
+
+#mpBanner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    padding: 0.5em;
+    background: #a33;
+}
+
+.mp-players {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5em;
+    li {
+        background: #272727;
+        white-space: nowrap;
+        border-radius: 999px;
+        padding: 0.3em 0.9em;
+        &.me {
+            border: 2px solid variables.$mainColor;
+        }
+        &.offline {
+            opacity: 0.4;
+        }
+    }
+}
+
+.mp-ranking {
+    list-style: none;
+    width: min(420px, 100%);
+    margin: 1em auto;
+    // one grid for the whole list so every row shares the same column widths
+    display: grid;
+    grid-template-columns: 2.5em 1fr auto auto;
+    align-content: start;
+    li {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        align-items: baseline;
+        gap: 0.6em;
+        padding: 0.4em 0.8em;
+        border-bottom: 1px solid #333;
+        &.me {
+            background: rgba(17, 68, 126, 0.3);
+        }
+    }
+    .points {
+        color: #7c7;
+    }
+}
+
+#mpChips,
+#mpFinalRanking {
+    display: none;
+}
+
+body.mp-active {
+    #mpChips {
+        display: flex;
+        margin-top: 0.5em;
+    }
+    #mpFinalRanking {
+        display: grid;
+    }
+    .maps-container,
+    #BUTTON_SHARE {
+        display: none !important;
+    }
+}
+
+body.mp-active:not(.mp-host) #BUTTON_PLAYAGAIN {
+    display: none !important;
+}
+
+.host-only {
+    display: none !important;
+}
+
+body.mp-host {
+    .host-only {
+        display: revert !important;
+    }
+    .guest-only {
+        display: none !important;
+    }
+}
+
+// in-game ranking must leave room for the host's NEXT button
+
+#rightSide .mp-ranking {
+    // big real hint images would otherwise squeeze the list to nothing in the flex column
+    flex-shrink: 0;
+    margin: 0.5em auto;
+    max-height: 25vh;
+    overflow-y: auto;
+    font-size: 0.85em;
+}
+
+// during reveal the ranking replaces the player chips
+
+#mpRanking:not([hidden]) ~ #mpChips {
+    display: none !important;
+}
+
+.mp-ranking .name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#rightSide .mp-players {
+    font-size: 0.75em;
+    gap: 0.3em;
+}
+
+// phones: the game's right column becomes a row; give the MP elements their own full-width line
+@media (width <= 768px) {
+    #gameWrapper:not(.no-map) #rightSide {
+        flex-wrap: wrap;
+    }
+    #rightSide #mpStatus,
+    #rightSide .mp-ranking,
+    #rightSide #mpChips {
+        order: 10;
+        flex-basis: 100%;
+    }
+}
+
+// Big screen / projector view (?watch=CODE): nothing to click, everything larger
+
+body.watch-mode {
+    #actions,
+    #score,
+    #mpEntry {
+        display: none !important;
+    }
+    // leaflet sets pointer-events on its own layers, so the children need it too
+    #map,
+    #map * {
+        pointer-events: none !important;
+    }
+    #timerWrapper {
+        font-size: 3em;
+    }
+    #lobby #mpQr {
+        width: min(50vh, 90vw) !important;
+        height: auto !important;
+    }
+    #mpRoomCode {
+        font-size: 5em;
+    }
+    .mp-players li {
+        font-size: 1.3em;
+    }
+    #map_ui {
+        max-width: none;
+    }
+    // the hint image is what the room looks at
+    #rightSide {
+        width: 45%;
+    }
+    #rightSide .mp-ranking,
+    .mp-ranking {
+        width: min(700px, 100%);
+        max-height: none;
+        font-size: 1.3em;
+    }
+    #mpFinalRanking li:nth-child(-n + 3) {
+        font-size: 1.4em;
+    }
+    #mpFinalRanking li:first-child {
+        font-size: 1.8em;
+    }
+}
+
+// guessing on the big screen: the square hint photo is as tall as the map, status and chips hang below it
+
+body.watch-mode:not(.mp-reveal) #rightSide {
+    display: grid;
+    grid-template-rows: 100%;
+    align-content: start;
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 45%;
+    #preview,
+    .preview-wrapper,
+    #hint-wrapper {
+        height: 100%;
+        min-height: 0;
+    }
+    #hint-wrapper {
+        width: auto;
+    }
+    #hint {
+        display: block;
+        height: 100%;
+        width: auto;
+    }
+}
+
+// reveal on the big screen: the map with everyone's guesses gets most of the room
+
+body.watch-mode.mp-reveal {
+    #gameWrapper {
+        gap: 1.5em;
+        padding: 1.5em 2em;
+    }
+    #rightSide {
+        width: 24%;
+    }
+}
+
+#BUTTON_MP {
+    margin-top: 1.5em;
+}
+
+#mpEntry.invite :is(#BUTTON_MP_CREATE, #mpCode) {
+    display: none !important;
+}
+
+// entry form: one column, every control the same width, height and radius
+
+#lobby #mpEntry {
+    gap: 0.8em;
+    width: min(360px, 100%);
+    h1 {
+        margin-bottom: 0.3em;
+    }
+    input,
+    button {
+        width: 100%;
+        height: 52px;
+        padding: 0 1em;
+        border-radius: 12px;
+        font-size: 1.05em;
+    }
+    .mp-join {
+        gap: 0.6em;
+        #mpCode {
+            flex: 1;
+            min-width: 0;
+            letter-spacing: 0.4em;
+        }
+        #BUTTON_MP_JOIN {
+            flex: 0 0 38%;
+        }
+    }
+    .mp-divider {
+        display: flex;
+        align-items: center;
+        gap: 0.8em;
+        width: 100%;
+        margin: 0.4em 0;
+        color: #888;
+        font-size: 0.8em;
+        text-transform: uppercase;
+        &::before,
+        &::after {
+            content: "";
+            flex: 1;
+            border-top: 1px solid #333;
+        }
+    }
+    #mpWatchOffer {
+        display: none;
+        flex-direction: column;
+        gap: 0.8em;
+        width: 100%;
+    }
+    // the game already started: offer to watch instead of joining
+    &.running {
+        #mpName,
+        #BUTTON_MP_CREATE,
+        .mp-divider,
+        .mp-join {
+            display: none;
+        }
+        #mpWatchOffer {
+            display: flex;
+        }
+    }
+    // invite link: name + join only
+    &.invite {
+        .mp-divider {
+            display: none;
+        }
+        .mp-join #BUTTON_MP_JOIN {
+            flex: 1;
+        }
+    }
+    // secondary action: outlined instead of filled
+    #BUTTON_MP_BACK {
+        margin-top: 0.6em;
+        background: transparent;
+        border: 2px solid #333;
+        &:hover {
+            background: #272727;
+        }
+    }
+}
