@@ -49,5 +49,40 @@
         "discord": "加入我们的Discord",
         "points": "得分"
     },
+    "mp": {
+        "play": "多人游戏",
+        "title": "和好友一起玩",
+        "namePlaceholder": "你的名字",
+        "codePlaceholder": "房间码",
+        "orJoin": "或加入一个房间",
+        "code": "房间码",
+        "rounds": "轮",
+        "waitingForHost": "等待房主中...",
+        "waitingForPlayers": "等待其他玩家中 ({{answered}}/{{total}})",
+        "gameRunning": "游戏已经开始，你仍可以观看。",
+        "reconnecting": "正在重新连接...",
+        "showOnScreen": "在大屏幕上显示",
+        "enterName": "请先输入你的名字",
+        "buttons": {
+            "create": "创建房间",
+            "join": "加入",
+            "start": "开始",
+            "leave": "离开",
+            "endRound": "结束回合",
+            "watch": "观看"
+        },
+        "errors": {
+            "SESSION_NOT_FOUND": "未找到该房间",
+            "NAME_TAKEN": "该名字已被使用",
+            "GAME_RUNNING": "游戏已经开始",
+            "SESSION_FULL": "房间已满",
+            "NOT_HOST": "只有房主可以这样做",
+            "INVALID": "无效请求",
+            "GUESSES": "无法加载猜测记录",
+            "CODE": "请输入4位房间码",
+            "SERVER_BUSY": "当前房间数过多，请稍后再试",
+            "REPLACED": "你已在其他标签页或设备上继续游戏"
+        }
+    },
     "desc": "找到这张图片在地图中的哪个位置"
 }
