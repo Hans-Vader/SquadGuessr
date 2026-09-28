@@ -123,6 +123,8 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+    const { config } = await import("dotenv");
+    config();
     const port = Number(process.env.MP_PORT) || 3001;
     startServer({ port });
     console.log(`SquadGuessr multiplayer server listening on :${port}/mp`);
