@@ -286,10 +286,6 @@ body.watch-mode.mp-reveal {
     }
 }
 
-#BUTTON_MP {
-    margin-top: 1.5em;
-}
-
 #mpEntry.invite :is(#BUTTON_MP_CREATE, #mpCode) {
     display: none !important;
 }

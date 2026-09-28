@@ -5,7 +5,7 @@
         "findMap": "寻找地图",
         "topScore": "最高得分：",
         "buttons": {
-            "next": "下一步"
+            "next": "单人游戏"
         }
     },
     "timer": {

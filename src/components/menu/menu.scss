@@ -106,13 +106,18 @@ h1 {
     margin-bottom: 40px;
 }
 
-#BUTTON_TIMER {
-    padding: 18px 64px;
+.menu-actions {
+    display: flex;
+    gap: 20px;
 
-    &:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
+    button {
+        height: 100px;
     }
+}
+
+#BUTTON_TIMER:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
 }
 
 
@@ -149,8 +154,16 @@ h1 {
 
     }
 
-    .BUTTON_TIMER {
-        padding: 16px 48px;
-        font-size: 20px;
+    .menu-actions {
+        flex-direction: column;
+        width: 100%;
+        gap: 12px;
+
+        button {
+            min-width: 0;
+            width: 100%;
+            padding: 16px 48px;
+            font-size: 20px;
+        }
     }
 }
