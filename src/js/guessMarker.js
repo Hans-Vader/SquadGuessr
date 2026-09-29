@@ -64,7 +64,7 @@ export const guessMarker = Marker.extend({
                 shadowSize:   [ICON_SIZE_X, ICON_SIZE_Y],
                 iconAnchor:   [ICON_SIZE_X / 2, ICON_SIZE_Y],
                 shadowAnchor: [ICON_SIZE_X / 4, ICON_SIZE_Y],
-                className: "animatedWeaponMarker"
+                className: ["animatedWeaponMarker", this.options.iconClass].filter(Boolean).join(" ")
             })
         );
     },

@@ -63,6 +63,7 @@
         "reconnecting": "正在重新连接...",
         "showOnScreen": "在大屏幕上显示",
         "enterName": "请先输入你的名字",
+        "you": "你",
         "buttons": {
             "create": "创建房间",
             "join": "加入",

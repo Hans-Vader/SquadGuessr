@@ -184,6 +184,12 @@ body.mp-host {
     white-space: nowrap;
 }
 
+// own guess at the reveal: the navy marker turns red like the own distance line
+
+.leaflet-marker-icon.mp-own {
+    filter: hue-rotate(130deg) brightness(2);
+}
+
 #rightSide .mp-players {
     font-size: 0.75em;
     gap: 0.3em;

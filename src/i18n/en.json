@@ -63,6 +63,7 @@
         "reconnecting": "Reconnecting…",
         "showOnScreen": "Show on a big screen",
         "enterName": "Enter your name first",
+        "you": "You",
         "buttons": {
             "create": "CREATE SESSION",
             "join": "JOIN",
