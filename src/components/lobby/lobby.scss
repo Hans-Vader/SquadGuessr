@@ -218,9 +218,22 @@ body.watch-mode {
     #timerWrapper {
         font-size: 3em;
     }
+    // the QR code gives up height first, so everyone who joined stays visible without scrolling
+    // safe: when even the smallest QR code does not fit, start at the top and scroll instead of cutting off the room code
+    #lobby #mpRoom {
+        flex: 1 1 auto;
+        min-height: 0;
+        margin-block: 0;
+        justify-content: safe center;
+        width: min(1200px, 100%);
+    }
     #lobby #mpQr {
-        width: min(50vh, 90vw) !important;
+        flex: 1 1 0;
+        min-height: 12rem;
+        max-height: min(50vh, 90vw);
+        width: auto !important;
         height: auto !important;
+        aspect-ratio: 1;
     }
     #mpRoomCode {
         font-size: 5em;
