@@ -379,4 +379,18 @@
             white-space: nowrap;
         }
     }
+    // Find the Map: the name field keeps its own full-width line, the two buttons share the line below it;
+    // each line gets half the height like on a guest's screen, same padding so both buttons get the same width
+    body.mp-host #gameWrapper.no-map #rightSide #actions {
+        flex-wrap: wrap;
+        align-content: space-between;
+        #searchMap {
+            flex: 0 0 100%;
+            height: calc(50% - 4px);
+        }
+        button {
+            height: calc(50% - 4px);
+            padding: 0 0.5em;
+        }
+    }
 }
