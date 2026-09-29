@@ -180,8 +180,6 @@ export default class Multiplayer {
         this.answered = false;
         this.roundIndex = null;
         this.revealIndex = null;
-        // the game screen is gone: a round seen again later (watching this session after leaving it) must count as fresh
-        this.app.currentGuess = null;
         this.app.selectMode($(".mode-card.selected").data("mode") || "classic");
         const ws = this.ws;
         this.ws = null;
@@ -401,8 +399,9 @@ export default class Multiplayer {
         // before any map sizing: on the big screen the reveal gives the map most of the width
         $("body").addClass("mp-reveal");
 
-        // fresh = we missed the round (reconnect straight into reveal)
-        const fresh = app.currentGuess?.url !== solution.url;
+        // fresh = we missed the round (reconnect or watch straight into reveal); roundIndex is ours alone and reset by
+        // stop(), app.currentGuess may still hold a singleplayer round on the same image
+        const fresh = msg.index !== this.roundIndex || app.currentGuess?.url !== solution.url;
         // mapFinder never drew the map during the round (even if activeMap happens to be the right one)
         const needsMap = fresh || app.selectedMode === "mapFinder" || !mm.activeMap
             || mm.activeMap.name.toLowerCase() !== solution.map.toLowerCase();
