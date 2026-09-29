@@ -247,13 +247,18 @@ export default class Multiplayer {
             return this.toast("warning", "mp.errors.REPLACED");
         }
         this.toast("error", `mp.errors.${code}`);
-        if (code === "SESSION_NOT_FOUND") localStorage.removeItem(`mp:${this.hello?.code}`);
+        // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
+        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY"].includes(code);
         if (!rejected) return;
-        // were in the session (server restart, dropped from the lobby) or came via a dead invite link: back to the menu
-        if (this.state || $("#mpEntry").hasClass("invite")) return this.leave();
-        // typed a wrong code / taken name on the entry screen: stay there to correct it
+        // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen tab, or an invite
+        // link whose form cannot fix it (dead or full session; the form only lets you change the name)
+        const invite = $("#mpEntry").hasClass("invite");
+        if (this.state || this.watching || (invite && code !== "NAME_TAKEN")) return this.leave();
+        // wrong code or taken name: stay on the form to correct it
+        // (an automatic rejoin after a reload never showed the form, hence showEntry)
         this.stop();
+        this.showEntry();
     }
 
     // ===== RENDERING =====
