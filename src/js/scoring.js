@@ -32,20 +32,22 @@ export function pointsForDistance(distance, size) {
 }
 
 /**
- * Plain edit distance between two strings
+ * Edits between two strings: a missing, extra or wrong letter, or two neighbouring letters swapped, is one edit each
+ * (optimal string alignment distance)
  */
-export function levenshtein(a, b) {
-    const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+export function editDistance(a, b) {
+    let twoUp = [];
+    let above = Array.from({ length: b.length + 1 }, (_, j) => j);
     for (let i = 1; i <= a.length; i++) {
-        let diagonal = row[0];
-        row[0] = i;
+        const row = [i];
         for (let j = 1; j <= b.length; j++) {
-            const above = row[j];
-            row[j] = Math.min(row[j] + 1, row[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
-            diagonal = above;
+            row[j] = Math.min(above[j] + 1, row[j - 1] + 1, above[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) row[j] = Math.min(row[j], twoUp[j - 2] + 1);
         }
+        twoUp = above;
+        above = row;
     }
-    return row[b.length];
+    return above[b.length];
 }
 
 const compact = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -55,7 +57,7 @@ const MAP_NAMES = MAPS.map(m => compact(m.name));
  * Fewest typos between the start of a (compact) answer and a (compact) map name
  */
 function typos(typed, name) {
-    return Math.min(...Array.from({ length: typed.length + 1 }, (_, i) => levenshtein(typed.slice(0, i), name)));
+    return Math.min(...Array.from({ length: typed.length + 1 }, (_, i) => editDistance(typed.slice(0, i), name)));
 }
 
 /**

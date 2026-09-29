@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pointsForDistance, levenshtein, mapNameMatches, distance, mapSize, scoreAnswer } from "../src/js/scoring.js";
+import { pointsForDistance, editDistance, mapNameMatches, distance, mapSize, scoreAnswer } from "../src/js/scoring.js";
 import { MAPS, initMapsProperties } from "../src/js/data/maps.js";
 
 test("pointsForDistance on a 3000m map", () => {
@@ -16,10 +16,12 @@ test("pointsForDistance scales thresholds with map size", () => {
     assert.equal(pointsForDistance(70, 6000).points, 90);
 });
 
-test("levenshtein is the plain edit distance", () => {
-    assert.equal(levenshtein("narva", "narva"), 0);
-    assert.equal(levenshtein("narv", "narva"), 1);
-    assert.equal(levenshtein("kohat", "narva"), 5);
+test("editDistance counts a missing, extra, wrong or swapped letter as one edit", () => {
+    assert.equal(editDistance("narva", "narva"), 0);
+    assert.equal(editDistance("narv", "narva"), 1);
+    assert.equal(editDistance("kohat", "narva"), 5);
+    assert.equal(editDistance("khoat", "kohat"), 1);
+    assert.equal(editDistance("ab", "ba"), 1);
 });
 
 test("mapNameMatches tolerates case, spaces and small typos", () => {
@@ -50,6 +52,16 @@ test("mapNameMatches gives no points for an answer that fits two maps equally we
     assert.equal(mapNameMatches("Kokat", "Kokan"), false);
     assert.equal(mapNameMatches("sugar", "Logar"), false);
     assert.equal(mapNameMatches("Na Anvil", "Narva"), false);
+});
+
+test("mapNameMatches forgives swapped letters without handing the points to the map next to them", () => {
+    // as plain edits these were 2 typos from their map and from another one, so they scored for neither
+    const swapped = [["Khoat", "Kohat", "Chora"], ["Koaht", "Kohat", "Kokan"], ["Hraju", "Harju", "Chora"],
+        ["Navil", "Anvil", "Narva"], ["Ogrodok", "Gorodok", "Logar"], ["Koakn", "Kokan", "Kohat"]];
+    swapped.forEach(([answer, map, other]) => {
+        assert.equal(mapNameMatches(answer, map), true, `${answer} -> ${map}`);
+        assert.equal(mapNameMatches(answer, other), false, `${answer} -> ${other}`);
+    });
 });
 
 test("mapNameMatches cannot be gamed by listing several maps", () => {
