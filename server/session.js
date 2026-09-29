@@ -269,7 +269,7 @@ export class Session {
             type: "reveal",
             index: this.round,
             total: this.guesses.length,
-            solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng },
+            solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng, submitter: g.submitter },
             results,
         };
     }

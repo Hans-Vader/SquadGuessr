@@ -125,7 +125,8 @@ test("round ends when every connected player answered", () => {
     s.handle(guest, { type: "answer", index: s.round, lat: -2800, lng: 2800 });
     assert.equal(s.phase, "reveal");
     const reveal = last(guest, "reveal");
-    assert.deepEqual(reveal.solution, { map: "Narva", url: "/img/guesses/a.webp", lat: -100, lng: 200 });
+    // the credit comes along: a screen that missed the round (big screen, reconnect) only gets the reveal
+    assert.deepEqual(reveal.solution, { map: "Narva", url: "/img/guesses/a.webp", lat: -100, lng: 200, submitter: "Dan" });
     const hans = reveal.results.find(r => r.name === "Hans");
     const max = reveal.results.find(r => r.name === "Max");
     assert.equal(hans.points, 100);

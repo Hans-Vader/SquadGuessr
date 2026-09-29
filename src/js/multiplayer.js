@@ -405,7 +405,7 @@ export default class Multiplayer {
         // mapFinder never drew the map during the round (even if activeMap happens to be the right one)
         const needsMap = fresh || app.selectedMode === "mapFinder" || !mm.activeMap
             || mm.activeMap.name.toLowerCase() !== solution.map.toLowerCase();
-        app.currentGuess = { ...solution, submitter: fresh ? null : app.currentGuess.submitter };
+        app.currentGuess = solution;
 
         $("#gameWrapper").removeClass("no-map");
         if (needsMap) app.setupMap();
@@ -413,6 +413,7 @@ export default class Multiplayer {
             app.switchUI("game");
             app.setupHint();
         }
+        $("#round").text(`${msg.index + 1}/${msg.total}`);
         mm.invalidateSize();
 
         const mine = msg.results.find(r => r.id === this.me);
