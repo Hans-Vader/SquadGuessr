@@ -122,7 +122,13 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
     return wss;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// pm2 (fork mode, ESM) launches this file through its own wrapper, so process.argv[1]
+// points at pm2 internals rather than this script: the argv check alone misses that case,
+// so also trust pm_id, which pm2 sets on every process it manages
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun || process.env.pm_id !== undefined) {
+    const { config } = await import("dotenv");
+    config();
     const port = Number(process.env.MP_PORT) || 3001;
     startServer({ port });
     console.log(`SquadGuessr multiplayer server listening on :${port}/mp`);

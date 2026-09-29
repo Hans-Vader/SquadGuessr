@@ -5,7 +5,7 @@
         "findMap": "Find the Map",
         "topScore": "Top Score: ",
         "buttons": {
-            "next": "NEXT"
+            "next": "SINGLEPLAYER"
         }
     },
     "timer": {
@@ -50,7 +50,7 @@
         "points": "Points"
     },
     "mp": {
-        "play": "PLAY WITH FRIENDS",
+        "play": "MULTIPLAYER",
         "title": "Play with friends",
         "namePlaceholder": "Your name",
         "codePlaceholder": "CODE",
