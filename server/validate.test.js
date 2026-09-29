@@ -40,6 +40,8 @@ test("validSettings accepts only allowed values", () => {
 test("validGuesses checks count and every field", () => {
     assert.equal(validGuesses([guess(), guess(), guess()], 3), true);
     assert.equal(validGuesses([guess({ submitter: "Dan" }), guess({ map: "narva" }), guess({ submitter: null })], 3), true);
+    // real hint images are named like this (Sanxian): a rejected name made START fail for the whole game
+    assert.equal(validGuesses([guess(), guess(), guess({ url: "/img/guesses/Screenshot (301).webp" })], 3), true);
     assert.equal(validGuesses([guess(), guess()], 3), false);
     assert.equal(validGuesses("nope", 3), false);
     assert.equal(validGuesses([guess(), guess(), guess({ map: "Atlantis" })], 3), false);
@@ -50,6 +52,18 @@ test("validGuesses checks count and every field", () => {
     assert.equal(validGuesses([guess(), guess(), guess({ lng: Infinity })], 3), false);
     assert.equal(validGuesses([guess(), guess(), guess({ submitter: "x".repeat(41) })], 3), false);
     assert.equal(validGuesses([guess(), guess(), null], 3), false);
+});
+
+test("guess urls: ordinary file names pass, anything that could leave the attribute or the path does not", () => {
+    const ok = url => validGuesses([guess({ url })], 1);
+    // a rejected name fails START for the whole game, so any plain file name must pass
+    for (const url of ["/img/guesses/Kaszuby's (2).webp", "/img/guesses/shot[1]+final,a.webp", "/img/guesses/Łódź_2024.webp"]) {
+        assert.equal(ok(url), true, url);
+    }
+    for (const url of ["/img/a\tb.webp", "/img/a\nb.webp", "/img/a<b.webp", "/img/a>b.webp", "/img/a\\b.webp",
+        "/img/a.webp?x=1", "/img/a.webp#x", "/img/%2e%2e/secret", "/img/a\"b.webp", "/img/../secret", "/api/x.webp"]) {
+        assert.equal(ok(url), false, url);
+    }
 });
 
 test("validAnswer per mode", () => {

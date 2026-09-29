@@ -221,12 +221,27 @@ body.watch-mode {
     #map * {
         pointer-events: none !important;
     }
+    // alone in the footer (points hidden), so push it to the right end like on a player's screen
     #timerWrapper {
         font-size: 3em;
+        margin-left: auto;
+    }
+    // the QR code gives up height first, so everyone who joined stays visible without scrolling
+    // safe: when even the smallest QR code does not fit, start at the top and scroll instead of cutting off the room code
+    #lobby #mpRoom {
+        flex: 1 1 auto;
+        min-height: 0;
+        margin-block: 0;
+        justify-content: safe center;
+        width: min(1200px, 100%);
     }
     #lobby #mpQr {
-        width: min(50vh, 90vw) !important;
+        flex: 1 1 0;
+        min-height: 12rem;
+        max-height: min(50vh, 90vw);
+        width: auto !important;
         height: auto !important;
+        aspect-ratio: 1;
     }
     #mpRoomCode {
         font-size: 5em;
@@ -255,28 +270,26 @@ body.watch-mode {
     }
 }
 
-// guessing on the big screen: the square hint photo is as tall as the map, status and chips hang below it
+// guessing on the big screen (phones keep the stacked layout): map and square photo share one side, so they line up
 
-body.watch-mode:not(.mp-reveal) #rightSide {
-    display: grid;
-    grid-template-rows: 100%;
-    align-content: start;
-    flex: 0 0 auto;
-    width: auto;
-    max-width: 45%;
-    #preview,
-    .preview-wrapper,
-    #hint-wrapper {
-        height: 100%;
-        min-height: 0;
-    }
-    #hint-wrapper {
-        width: auto;
-    }
-    #hint {
-        display: block;
-        height: 100%;
-        width: auto;
+@media (width > 768px) {
+    body.watch-mode:not(.mp-reveal) #gameWrapper:not(.no-map) {
+        container-type: size;
+
+        --side: min(100cqh, 45cqw);
+        #leftSide {
+            height: var(--side);
+        }
+        #rightSide {
+            flex: 0 0 auto;
+            width: var(--side);
+            height: auto;
+        }
+        #hint-wrapper,
+        #hint {
+            width: var(--side);
+            height: var(--side);
+        }
     }
 }
 

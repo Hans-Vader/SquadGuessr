@@ -247,13 +247,18 @@ export default class Multiplayer {
             return this.toast("warning", "mp.errors.REPLACED");
         }
         this.toast("error", `mp.errors.${code}`);
-        if (code === "SESSION_NOT_FOUND") localStorage.removeItem(`mp:${this.hello?.code}`);
+        // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
+        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY"].includes(code);
         if (!rejected) return;
-        // were in the session (server restart, dropped from the lobby) or came via a dead invite link: back to the menu
-        if (this.state || $("#mpEntry").hasClass("invite")) return this.leave();
-        // typed a wrong code / taken name on the entry screen: stay there to correct it
+        // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen tab, or an invite
+        // link whose form cannot fix it (dead or full session; the form only lets you change the name)
+        const invite = $("#mpEntry").hasClass("invite");
+        if (this.state || this.watching || (invite && code !== "NAME_TAKEN")) return this.leave();
+        // wrong code or taken name: stay on the form to correct it
+        // (an automatic rejoin after a reload never showed the form, hence showEntry)
         this.stop();
+        this.showEntry();
     }
 
     // ===== RENDERING =====
@@ -459,8 +464,17 @@ export default class Multiplayer {
             mm.flyTo(solution, this.app.selectedMode === "mapFinder" ? 3 : 6, { duration: 1.5 });
             return;
         }
-        // extra room on top for the name tooltips above the markers
-        mm.flyToBounds(new LatLngBounds(points), { paddingTopLeft: [60, 110], paddingBottomRight: [60, 40], maxZoom: 6, duration: 1.5 });
+        // room for the name tags above the markers: on top, and to the sides for half the widest tag (a 20-character
+        // name + "+100" is about 190px), on the left also for the zoom buttons. On small (phone) maps each side gets
+        // at most a share of the map, so the guesses still get most of it
+        const size = mm.getSize();
+        const pad = (px, share, length) => Math.min(px, Math.round(share * length));
+        mm.flyToBounds(new LatLngBounds(points), {
+            paddingTopLeft: [pad(150, 0.2, size.x), pad(110, 0.3, size.y)],
+            paddingBottomRight: [pad(100, 0.15, size.x), pad(40, 0.1, size.y)],
+            maxZoom: 6,
+            duration: 1.5,
+        });
     }
 
     toMap({ lat, lng }) {
