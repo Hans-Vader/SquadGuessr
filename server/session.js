@@ -132,9 +132,11 @@ export class Session {
         }
         const size = mapSize(this.guesses[this.round].map);
         // kept on the map like the client's marker: absurd coordinates would break the reveal on every screen
+        // a map name is cut like the input field does (maxlength in game.html), not rejected: the client has
+        // already locked the field, so a rejected answer would leave the player unable to answer this round
         const answer = this.settings.mode === "classic"
             ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
-            : { lat: null, lng: null, mapName: msg.mapName };
+            : { lat: null, lng: null, mapName: msg.mapName.slice(0, 40) };
         player.answers[this.round] = { ...answer, ...scoreAnswer(this.settings.mode, this.guesses[this.round], answer) };
         this.broadcastState();
         this.checkRoundEnd();

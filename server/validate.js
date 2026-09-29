@@ -38,6 +38,6 @@ function validGuess(g) {
 }
 
 export function validAnswer(msg, mode) {
-    if (mode === "mapFinder") return typeof msg.mapName === "string" && msg.mapName.length <= 40;
+    if (mode === "mapFinder") return typeof msg.mapName === "string";
     return Number.isFinite(msg.lat) && Number.isFinite(msg.lng);
 }

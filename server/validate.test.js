@@ -71,6 +71,8 @@ test("validAnswer per mode", () => {
     assert.equal(validAnswer({ lat: NaN, lng: 2 }, "classic"), false);
     assert.equal(validAnswer({ mapName: "narva" }, "classic"), false);
     assert.equal(validAnswer({ mapName: "narva" }, "mapFinder"), true);
-    assert.equal(validAnswer({ mapName: "x".repeat(41) }, "mapFinder"), false);
+    // too long is not invalid: the session keeps the first 40 characters (a rejected answer locks the player out)
+    assert.equal(validAnswer({ mapName: "x".repeat(41) }, "mapFinder"), true);
+    assert.equal(validAnswer({ mapName: 42 }, "mapFinder"), false);
     assert.equal(validAnswer({ lat: 1, lng: 2 }, "mapFinder"), false);
 });

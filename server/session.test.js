@@ -204,6 +204,17 @@ test("mapFinder answers are scored by map name", () => {
     assert.equal(results.find(r => r.name === "Hans").lat, null);
 });
 
+test("a long map name keeps its first 40 characters instead of being rejected", () => {
+    const { s, host, guest, last } = started({ mode: "mapFinder", timer: 0, rounds: 3 });
+    const long = "Narva, the one with the fortress on the river";
+    s.handle(host, { type: "answer", index: s.round, mapName: long });
+    s.handle(guest, { type: "answer", index: s.round, mapName: "kohat" });
+    assert.equal(last(host, "error"), undefined);
+    const hans = last(host, "reveal").results.find(r => r.name === "Hans");
+    assert.equal(hans.mapName, long.slice(0, 40));
+    assert.equal(hans.points, 100);
+});
+
 test("reconnect during a round restores the player and resends the round", () => {
     const { s, guest, last } = started();
     const token = last(guest, "welcome").token;
