@@ -414,14 +414,14 @@ export default class Multiplayer {
         mm.guessMarker?.remove();
         mm.guessMarker = null;
         if (mine && mine.lat !== null) {
-            mm.guessMarker = new guessMarker(this.toMap(mine), { draggable: false }, mm).addTo(mm.markersGroup);
+            mm.guessMarker = this.addPlayerMarker({ ...mine, name: i18next.t("mp.you", { ns: "common" }) });
         }
         // everyone sees how far off everyone was: the others in pale cyan (red on the big screen), mine red and last so it stays on top
         const othersStyle = this.watching ? {} : { color: "#33d6ff", opacity: 0.5 };
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => {
-                this.addOtherMarker(r);
+                this.addPlayerMarker(r);
                 app.drawSolutionDistance(latLng, this.toMap(r), othersStyle);
             });
         if (mm.guessMarker) app.drawSolutionDistance(latLng);
@@ -466,11 +466,11 @@ export default class Multiplayer {
         return [lat * mm.gameToMapScale, lng * mm.gameToMapScale];
     }
 
-    addOtherMarker(result) {
+    addPlayerMarker(result) {
         const mm = this.app.minimap;
         const label = document.createElement("span");
         label.textContent = `${result.name} +${result.points}`;
-        new guessMarker(this.toMap(result), { draggable: false }, mm)
+        return new guessMarker(this.toMap(result), { draggable: false }, mm)
             .addTo(mm.markersGroup)
             .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -45], className: "mpTooltip" });
     }
