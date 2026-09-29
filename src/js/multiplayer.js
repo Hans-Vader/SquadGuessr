@@ -461,8 +461,17 @@ export default class Multiplayer {
             mm.flyTo(solution, this.app.selectedMode === "mapFinder" ? 3 : 6, { duration: 1.5 });
             return;
         }
-        // extra room on top for the name tooltips above the markers
-        mm.flyToBounds(new LatLngBounds(points), { paddingTopLeft: [60, 110], paddingBottomRight: [60, 40], maxZoom: 6, duration: 1.5 });
+        // room for the name tags above the markers: on top, and to the sides for half the widest tag (a 20-character
+        // name + "+100" is about 190px), on the left also for the zoom buttons. On small (phone) maps each side gets
+        // at most a share of the map, so the guesses still get most of it
+        const size = mm.getSize();
+        const pad = (px, share, length) => Math.min(px, Math.round(share * length));
+        mm.flyToBounds(new LatLngBounds(points), {
+            paddingTopLeft: [pad(150, 0.2, size.x), pad(110, 0.3, size.y)],
+            paddingBottomRight: [pad(100, 0.15, size.x), pad(40, 0.1, size.y)],
+            maxZoom: 6,
+            duration: 1.5,
+        });
     }
 
     toMap({ lat, lng }) {
