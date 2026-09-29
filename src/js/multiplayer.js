@@ -413,10 +413,8 @@ export default class Multiplayer {
         // show my guess as the server scored it; a marker placed but never sent must not look scored
         mm.guessMarker?.remove();
         mm.guessMarker = null;
-        if (mine && mine.lat !== null) {
-            mm.guessMarker = this.addPlayerMarker({ ...mine, name: i18next.t("mp.you", { ns: "common" }) });
-        }
-        // everyone sees how far off everyone was: the others in pale cyan (red on the big screen), mine red and last so it stays on top
+        // everyone sees how far off everyone was: the others in pale cyan (red on the big screen), mine red and
+        // added last so my tag and line stay on top; the z-index offset does the same for my marker
         const othersStyle = this.watching ? {} : { color: "#33d6ff", opacity: 0.5 };
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
@@ -424,7 +422,11 @@ export default class Multiplayer {
                 this.addPlayerMarker(r);
                 app.drawSolutionDistance(latLng, this.toMap(r), othersStyle);
             });
-        if (mm.guessMarker) app.drawSolutionDistance(latLng);
+        if (mine && mine.lat !== null) {
+            const you = { ...mine, name: i18next.t("mp.you", { ns: "common" }) };
+            mm.guessMarker = this.addPlayerMarker(you, { iconClass: "mp-own", zIndexOffset: 1000 });
+            app.drawSolutionDistance(latLng);
+        }
         this.focusReveal(latLng, msg.results);
 
         if (mine) {
@@ -466,11 +468,11 @@ export default class Multiplayer {
         return [lat * mm.gameToMapScale, lng * mm.gameToMapScale];
     }
 
-    addPlayerMarker(result) {
+    addPlayerMarker(result, options = {}) {
         const mm = this.app.minimap;
         const label = document.createElement("span");
         label.textContent = `${result.name} +${result.points}`;
-        return new guessMarker(this.toMap(result), { draggable: false }, mm)
+        return new guessMarker(this.toMap(result), { draggable: false, ...options }, mm)
             .addTo(mm.markersGroup)
             .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -45], className: "mpTooltip" });
     }
