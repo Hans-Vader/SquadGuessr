@@ -44,6 +44,14 @@ test("mapNameMatches does not hand the points to a map a few typos away from the
     assert.equal(mapNameMatches("Kokan", "Kokan"), true);
 });
 
+test("mapNameMatches gives no points for an answer that fits two maps equally well", () => {
+    // one typo from Kohat and from Kokan: hedging between two maps must not score for either
+    assert.equal(mapNameMatches("Kokat", "Kohat"), false);
+    assert.equal(mapNameMatches("Kokat", "Kokan"), false);
+    assert.equal(mapNameMatches("sugar", "Logar"), false);
+    assert.equal(mapNameMatches("Na Anvil", "Narva"), false);
+});
+
 test("mapNameMatches cannot be gamed by listing several maps", () => {
     assert.equal(mapNameMatches("kohat gorodok anvil belaya chora narva", "Narva"), false);
     assert.equal(mapNameMatches("narva kohat", "Kohat"), false);

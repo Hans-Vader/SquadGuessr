@@ -49,6 +49,7 @@ export function levenshtein(a, b) {
 }
 
 const compact = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+const MAP_NAMES = MAPS.map(m => compact(m.name));
 
 /**
  * Fewest typos between the start of a (compact) answer and a (compact) map name
@@ -61,16 +62,16 @@ function typos(typed, name) {
  * Does a typed answer name this map? Case, spaces, "_" and up to 2 typos are forgiven.
  * Official names go on after the map id ("Kohat Toi", "Narva Flooded"), so the answer may too; but only its start counts,
  * so listing several maps in one answer matches the first of them at most.
- * An answer that fits another map better names that one ("Kokan" is 2 typos from Kohat); layers of one map
- * ("Narva" / "Narva_f") count as the same map.
+ * The answer must fit this map better than any other ("Kokan" is 2 typos from Kohat, "Kokat" 1 from both);
+ * layers of one map ("Narva" / "Narva_f") count as the same map.
  */
 export function mapNameMatches(answer, mapName) {
     const typed = compact(answer);
     const name = compact(mapName);
     const own = typos(typed, name);
-    return own <= 2 && MAPS.map(m => compact(m.name))
+    return own <= 2 && MAP_NAMES
         .filter(other => !other.startsWith(name) && !name.startsWith(other))
-        .every(other => typos(typed, other) >= own);
+        .every(other => typos(typed, other) > own);
 }
 
 export function distance(a, b) {
