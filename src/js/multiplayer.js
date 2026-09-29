@@ -416,13 +416,13 @@ export default class Multiplayer {
         if (mine && mine.lat !== null) {
             mm.guessMarker = new guessMarker(this.toMap(mine), { draggable: false }, mm).addTo(mm.markersGroup);
         }
-        // everyone sees how far off everyone was: the others in grey (red on the big screen), mine red and last so it stays on top
-        const othersColor = this.watching ? undefined : "#c8c8c8";
+        // everyone sees how far off everyone was: the others in pale cyan (red on the big screen), mine red and last so it stays on top
+        const othersStyle = this.watching ? {} : { color: "#33d6ff", opacity: 0.5 };
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => {
                 this.addOtherMarker(r);
-                app.drawSolutionDistance(latLng, this.toMap(r), othersColor);
+                app.drawSolutionDistance(latLng, this.toMap(r), othersStyle);
             });
         if (mm.guessMarker) app.drawSolutionDistance(latLng);
         this.focusReveal(latLng, msg.results);
