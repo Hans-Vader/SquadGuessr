@@ -31,6 +31,8 @@ export default class Multiplayer {
     init() {
         $("#BUTTON_MP").on("click", () => {
             $("#mpEntry").removeClass("invite running");
+            // a new session starts in the mode picked on the menu
+            $("#mpMode").val(this.app.selectedMode);
             this.showEntry();
         });
         // Enter joins: always from the code field, from the name field only on an invite link (no create choice there)
