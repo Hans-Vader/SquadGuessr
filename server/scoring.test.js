@@ -37,6 +37,13 @@ test("mapNameMatches accepts the full official map names", () => {
     official.forEach(([answer, map]) => assert.equal(mapNameMatches(answer, map), true, answer));
 });
 
+test("mapNameMatches does not hand the points to a map a few typos away from the one typed", () => {
+    assert.equal(mapNameMatches("Kokan", "Kohat"), false);
+    assert.equal(mapNameMatches("Kohat", "Kokan"), false);
+    assert.equal(mapNameMatches("Kohat Toi", "Kokan"), false);
+    assert.equal(mapNameMatches("Kokan", "Kokan"), true);
+});
+
 test("mapNameMatches cannot be gamed by listing several maps", () => {
     assert.equal(mapNameMatches("kohat gorodok anvil belaya chora narva", "Narva"), false);
     assert.equal(mapNameMatches("narva kohat", "Kohat"), false);
