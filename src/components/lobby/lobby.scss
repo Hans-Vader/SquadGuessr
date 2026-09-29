@@ -215,8 +215,10 @@ body.watch-mode {
     #map * {
         pointer-events: none !important;
     }
+    // alone in the footer (points hidden), so push it to the right end like on a player's screen
     #timerWrapper {
         font-size: 3em;
+        margin-left: auto;
     }
     // the QR code gives up height first, so everyone who joined stays visible without scrolling
     // safe: when even the smallest QR code does not fit, start at the top and scroll instead of cutting off the room code
