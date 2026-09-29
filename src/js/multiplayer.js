@@ -180,6 +180,8 @@ export default class Multiplayer {
         this.answered = false;
         this.roundIndex = null;
         this.revealIndex = null;
+        // the game screen is gone: a round seen again later (watching this session after leaving it) must count as fresh
+        this.app.currentGuess = null;
         this.app.selectMode($(".mode-card.selected").data("mode") || "classic");
         const ws = this.ws;
         this.ws = null;

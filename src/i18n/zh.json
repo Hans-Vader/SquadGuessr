@@ -29,7 +29,7 @@
         "guessPlaceHolder": "这是什么地图?..",
         "hintBy": "提交者",
         "buttons": {
-            "guess": "结果",
+            "guess": "猜测",
             "next": "下一个",
             "results": "结果"
         }
