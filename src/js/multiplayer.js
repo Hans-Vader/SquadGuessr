@@ -269,6 +269,8 @@ export default class Multiplayer {
             localStorage.setItem(`mp:${msg.code}`, msg.token);
             this.hello = { type: "join", code: msg.code, name: this.hello.name, token: msg.token };
             history.replaceState({}, "", `/?join=${msg.code}`);
+            // a new connection has nothing in flight: a CANCEL lost with the old one can be clicked again
+            $("#BUTTON_MP_CANCEL").prop("disabled", false);
             break;
         case "state":
             this.state = msg;
