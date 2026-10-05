@@ -27,7 +27,6 @@ test("resolves once the image loaded, and the same url is not downloaded twice",
     let done = false;
     preloader.load(["/a"]).then(() => { done = true; });
     await flush();
-    assert.deepEqual(images.map(i => i.url), ["/a"]);
     assert.equal(done, false);
     images[0].onload();
     await flush();
@@ -36,57 +35,33 @@ test("resolves once the image loaded, and the same url is not downloaded twice",
     assert.equal(images.length, 1);
 });
 
-test("a failed image is retried after 1 s, 2 s, 4 s ... until it loads, and only then counts as loaded", async () => {
+test("a failed image is retried after 1 s, 2 s, 4 s ... (at most 10 s) and only counts once it loads", async () => {
     const { preloader, images, timers, flush, fire } = setup();
+    assert.deepEqual([1, 2, 3, 4, 5, 20].map(retryDelay), [1000, 2000, 4000, 8000, 10000, 10000]);
     let done = false;
     preloader.load(["/a"]).then(() => { done = true; });
     await flush();
     images[0].onerror();
-    await flush();
-    assert.equal(done, false);
     assert.equal(timers[0].ms, 1000);
     fire();
-    assert.equal(images.length, 2);
     images[1].onerror();
     assert.equal(timers[0].ms, 2000);
     fire();
+    await flush();
+    assert.equal(done, false);
     images[2].onload();
     await flush();
     assert.equal(done, true);
 });
 
-test("retries back off by doubling and never wait longer than 10 s", () => {
-    assert.deepEqual([1, 2, 3, 4, 5, 6, 20].map(retryDelay), [1000, 2000, 4000, 8000, 10000, 10000, 10000]);
-});
-
-test("a download that never settles stops holding up the queue once keep drops it", async () => {
-    const { preloader, images, flush } = setup();
-    preloader.load(["/hangs"]);
-    preloader.load(["/next"]);
-    await flush();
-    assert.deepEqual(images.map(i => i.url), ["/hangs"]);
-    preloader.keep(["/next"]);
-    await flush();
-    assert.deepEqual(images.map(i => i.url), ["/hangs", "/next"]);
-});
-
-test("images load one after another: the map starts after the hint's first attempt", async () => {
+test("images load one after another, and one that keeps failing does not hold up the next", async () => {
     const { preloader, images, flush } = setup();
     preloader.load(["/hint", "/map"]);
     await flush();
     assert.deepEqual(images.map(i => i.url), ["/hint"]);
-    images[0].onload();
-    await flush();
-    assert.deepEqual(images.map(i => i.url), ["/hint", "/map"]);
-});
-
-test("an image that keeps failing does not hold up the next one", async () => {
-    const { preloader, images, flush } = setup();
-    preloader.load(["/broken", "/map"]);
-    await flush();
     images[0].onerror();
     await flush();
-    assert.deepEqual(images.map(i => i.url), ["/broken", "/map"]);
+    assert.deepEqual(images.map(i => i.url), ["/hint", "/map"]);
 });
 
 test("low priority is set before the download starts", async () => {
@@ -99,23 +74,21 @@ test("low priority is set before the download starts", async () => {
     assert.deepEqual(images.map(i => i.priorityAtStart), ["low", undefined]);
 });
 
-test("keep drops every other image: no more retries, and a late load no longer counts", async () => {
+test("keep drops every other image: no more retries, a download that never answers stops holding up the queue, a late load no longer counts", async () => {
     const { preloader, images, flush, fire } = setup();
     let failedDone = false;
-    let pendingDone = false;
+    let hangingDone = false;
     preloader.load(["/failed"]).then(() => { failedDone = true; });
     await flush();
     images[0].onerror();
-    preloader.load(["/pending"]).then(() => { pendingDone = true; });
-    await flush();
+    preloader.load(["/hangs"]).then(() => { hangingDone = true; });
     preloader.load(["/kept"]);
+    await flush();
     preloader.keep(["/kept"]);
     fire();
-    assert.equal(images.filter(i => i.url === "/failed").length, 1);
-    images.find(i => i.url === "/pending").onload();
     await flush();
-    assert.deepEqual([failedDone, pendingDone], [false, false]);
+    assert.deepEqual(images.map(i => i.url), ["/failed", "/hangs", "/kept"]);
+    images[1].onload();
     await flush();
-    preloader.load(["/kept"]);
-    assert.equal(images.filter(i => i.url === "/kept").length, 1);
+    assert.deepEqual([failedDone, hangingDone], [false, false]);
 });

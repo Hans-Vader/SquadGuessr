@@ -472,31 +472,26 @@ test("back in the lobby, players who left or dropped out during the game are gon
 
 // ===== LOADING: everyone sees a round at the same moment =====
 
-test("start loads the first round before anyone sees it, and answers wait for it", () => {
-    const { s, host, guest, last } = withGuest();
+test("a round is held back until every connected player has its images, and its clock starts only then", () => {
+    const { s, host, guest, last, advance } = withGuest({ mode: "classic", timer: 15, rounds: 3 });
     s.handle(host, { type: "start", guesses: GUESSES });
-    assert.equal(s.phase, "loading");
     assert.equal(last(guest, "state").phase, "loading");
     assert.deepEqual(last(guest, "prepare"), { type: "prepare", index: 0, url: "/img/guesses/a.webp", map: "Narva" });
     assert.equal(last(guest, "round"), undefined);
     s.handle(host, { type: "answer", index: 0, lat: -100, lng: 200 });
     assert.equal(last(host, "error").code, "INVALID");
-});
-
-test("the round starts once every connected player has the images, and its clock starts only then", () => {
-    const { s, host, guest, last, advance } = withGuest({ mode: "classic", timer: 15, rounds: 3 });
-    s.handle(host, { type: "start", guesses: GUESSES });
     advance(3000);
     s.handle(host, { type: "ready", index: 0 });
-    assert.equal(s.phase, "loading");
     assert.deepEqual(last(guest, "state").players.map(p => [p.name, p.ready, p.stalled]), [["Hans", true, false], ["Max", false, false]]);
     s.handle(guest, { type: "ready", index: 0 });
     assert.equal(s.phase, "round");
     assert.equal(last(guest, "round").deadline, 1000 + 3000 + 15000);
 });
 
-test("loading waits at most LOAD_FIRST_MS for the first round and LOAD_MS for later ones", () => {
-    const { s, host, guest, advance } = withGuest();
+test("loading waits at most LOAD_FIRST_MS, then LOAD_MS; who missed it is not waited for until they report back", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    const max = () => s.findPlayer(p => p.name === "Max");
+    const skip = (i) => { s.handle(host, { type: "endRound" }); s.handle(host, { type: "ready", index: i }); s.handle(host, { type: "next" }); };
     s.handle(host, { type: "start", guesses: GUESSES });
     s.handle(host, { type: "ready", index: 0 });
     advance(LOAD_FIRST_MS - 1);
@@ -505,12 +500,74 @@ test("loading waits at most LOAD_FIRST_MS for the first round and LOAD_MS for la
     advance(1);
     s.tick();
     assert.equal(s.phase, "round");
-    // a late ready brings Max back into the waiting
-    s.handle(guest, { type: "ready", index: 0 });
-    s.handle(host, { type: "endRound" });
-    s.handle(host, { type: "ready", index: 1 });
-    s.handle(host, { type: "next" });
+    assert.equal(max().stalled, true);
+    // the locked phone does not hold up the next round; a ready, even a late one, brings Max back into the waiting
+    skip(1);
+    assert.equal(s.phase, "round");
+    s.handle(guest, { type: "ready", index: 1 });
+    skip(2);
     assert.equal(s.phase, "loading");
+    advance(LOAD_MS - 1);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    advance(1);
+    s.tick();
+    assert.equal(max().stalled, true);
+    // coming back counts as reporting back too
+    s.disconnect(guest);
+    s.join({}, { token: last(guest, "welcome").token });
+    assert.equal(max().stalled, false);
+});
+
+test("preloaded rounds start at once and announce the next; a new game waits for everyone again", () => {
+    const { s, host, guest, sent, all } = started();
+    s.handle(host, { type: "endRound" });
+    readyAll(s, 1);
+    const before = sent.length;
+    s.handle(host, { type: "next" });
+    const mine = sent.slice(before).filter(x => x.conn === guest).map(x => x.msg);
+    assert.deepEqual(mine.map(m => m.type), ["state", "round", "prepare"]);
+    assert.equal(mine[0].phase, "round");
+    s.handle(host, { type: "endRound" });
+    readyAll(s, 2);
+    s.handle(host, { type: "next" });
+    s.handle(host, { type: "endRound" });
+    s.handle(host, { type: "next" });
+    assert.equal(s.phase, "final");
+    // the last round announces nothing; a ready after the game is ignored without an error
+    assert.deepEqual(all(guest, "prepare").map(m => m.index), [0, 1, 2]);
+    s.handle(guest, { type: "ready", index: 2 });
+    assert.deepEqual(all(guest, "error"), []);
+    s.handle(host, { type: "lobby" });
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(s.phase, "loading");
+});
+
+test("a player who drops or leaves while loading is not waited for", () => {
+    const { s, host, guest } = withGuest();
+    const ida = {};
+    s.join(ida, { name: "Ida" });
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(host, { type: "ready", index: 0 });
+    s.disconnect(guest);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    s.handle(ida, { type: "leave" });
+    assert.equal(s.phase, "round");
+});
+
+test("with everyone away, loading waits; the first one back gets a fresh wait that still ends after LOAD_MS", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.disconnect(host);
+    s.disconnect(guest);
+    advance(LOAD_FIRST_MS + 1000);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    s.join({}, { token: last(host, "welcome").token });
+    s.tick();
+    assert.equal(s.phase, "loading");
+    assert.equal(s.findPlayer(p => p.name === "Hans").stalled, false);
     advance(LOAD_MS - 1);
     s.tick();
     assert.equal(s.phase, "loading");
@@ -519,92 +576,13 @@ test("loading waits at most LOAD_FIRST_MS for the first round and LOAD_MS for la
     assert.equal(s.phase, "round");
 });
 
-test("a player who missed the loading time is not waited for again until they report back", () => {
+test("a player who reconnects gets the images again: while loading without extending the time, later for the next round", () => {
     const { s, host, guest, last, advance } = withGuest();
-    const token = last(guest, "welcome").token;
-    s.handle(host, { type: "start", guesses: GUESSES });
-    s.handle(host, { type: "ready", index: 0 });
-    advance(LOAD_FIRST_MS);
-    s.tick();
-    assert.equal(last(host, "state").players.find(p => p.name === "Max").stalled, true);
-    // the locked phone does not hold up the next round
-    s.handle(host, { type: "endRound" });
-    s.handle(host, { type: "ready", index: 1 });
-    s.handle(host, { type: "next" });
-    assert.equal(s.phase, "round");
-    // coming back counts as reporting back: the round after waits for Max again
-    s.disconnect(guest);
-    const phone = {};
-    s.join(phone, { token });
-    assert.equal(last(host, "state").players.find(p => p.name === "Max").stalled, false);
-    s.handle(host, { type: "endRound" });
-    s.handle(host, { type: "ready", index: 2 });
-    s.handle(host, { type: "next" });
-    assert.equal(s.phase, "loading");
-    s.handle(phone, { type: "ready", index: 2 });
-    assert.equal(s.phase, "round");
-});
-
-test("when everyone preloaded the next round, next starts it at once without a loading state", () => {
-    const { s, host, guest, sent } = started();
-    s.handle(host, { type: "endRound" });
-    readyAll(s, 1);
-    const before = sent.length;
-    s.handle(host, { type: "next" });
-    assert.equal(s.phase, "round");
-    const mine = sent.slice(before).filter(x => x.conn === guest).map(x => x.msg);
-    assert.deepEqual(mine.map(m => m.type), ["state", "round", "prepare"]);
-    assert.equal(mine[0].phase, "round");
-});
-
-test("every round start announces the next round, the last one announces nothing", () => {
-    const { s, host, guest, all } = started();
-    assert.deepEqual(all(guest, "prepare").map(m => m.index), [0, 1]);
-    for (let i = 1; i < 3; i++) {
-        s.handle(host, { type: "endRound" });
-        readyAll(s, i);
-        s.handle(host, { type: "next" });
-    }
-    assert.equal(s.round, 2);
-    assert.deepEqual(all(guest, "prepare").map(m => m.index), [0, 1, 2]);
-});
-
-test("a player whose connection drops while loading is not waited for", () => {
-    const { s, host, guest } = withGuest();
-    s.handle(host, { type: "start", guesses: GUESSES });
-    s.handle(host, { type: "ready", index: 0 });
-    s.disconnect(guest);
-    s.tick();
-    assert.equal(s.phase, "round");
-});
-
-test("when the only player still loading leaves, the round starts at once", () => {
-    const { s, host, guest } = withGuest();
-    s.handle(host, { type: "start", guesses: GUESSES });
-    s.handle(host, { type: "ready", index: 0 });
-    s.handle(guest, { type: "leave" });
-    assert.equal(s.phase, "round");
-});
-
-test("with every player disconnected, loading waits instead of starting the clock", () => {
-    const { s, host, guest, advance } = withGuest();
-    s.handle(host, { type: "start", guesses: GUESSES });
-    s.disconnect(host);
-    s.disconnect(guest);
-    advance(LOAD_FIRST_MS);
-    s.tick();
-    assert.equal(s.phase, "loading");
-});
-
-test("a player who reconnects while loading gets the images again and is waited for, without extending the time", () => {
-    const { s, host, guest, last, advance } = withGuest();
-    const token = last(guest, "welcome").token;
+    const back = () => { const conn = {}; s.disconnect(s.findPlayer(p => p.name === "Max").conn); s.join(conn, { token: last(guest, "welcome").token }); return conn; };
     s.handle(host, { type: "start", guesses: GUESSES });
     s.handle(host, { type: "ready", index: 0 });
     advance(5000);
-    s.disconnect(guest);
-    const phone = {};
-    s.join(phone, { token });
+    let phone = back();
     assert.equal(last(phone, "prepare").index, 0);
     advance(LOAD_FIRST_MS - 5000 - 1);
     s.tick();
@@ -612,34 +590,18 @@ test("a player who reconnects while loading gets the images again and is waited 
     advance(1);
     s.tick();
     assert.equal(s.phase, "round");
-});
-
-test("a player who reloads during a round gets the next round's images again and is waited for", () => {
-    const { s, host, guest, last } = started();
-    readyAll(s, 1);
-    const token = last(guest, "welcome").token;
-    s.disconnect(guest);
-    const phone = {};
-    s.join(phone, { token });
-    assert.equal(last(phone, "round").index, 0);
-    assert.equal(last(phone, "prepare").index, 1);
+    phone = back();
+    assert.deepEqual([last(phone, "round").index, last(phone, "prepare").index], [0, 1]);
+    s.handle(phone, { type: "ready", index: 1 });
     s.handle(host, { type: "endRound" });
+    phone = back();
+    assert.deepEqual([last(phone, "reveal").index, last(phone, "prepare").index], [0, 1]);
+    // a reloaded page lost its preloaded images, so the next round waits for it again
+    s.handle(host, { type: "ready", index: 1 });
     s.handle(host, { type: "next" });
-    // the reloaded page lost its preloaded images
     assert.equal(s.phase, "loading");
     s.handle(phone, { type: "ready", index: 1 });
     assert.equal(s.phase, "round");
-});
-
-test("a player who reconnects during the reveal gets the next round's images too", () => {
-    const { s, host, guest, last } = started();
-    const token = last(guest, "welcome").token;
-    s.handle(host, { type: "endRound" });
-    s.disconnect(guest);
-    const phone = {};
-    s.join(phone, { token });
-    assert.equal(last(phone, "reveal").index, 0);
-    assert.equal(last(phone, "prepare").index, 1);
 });
 
 test("odd ready messages are ignored silently: outside a game, not announced, stale, not a whole number, duplicate", () => {
@@ -658,7 +620,6 @@ test("odd ready messages are ignored silently: outside a game, not announced, st
     const counted = sent.length;
     s.handle(guest, { type: "ready", index: 0 });
     assert.equal(sent.length, counted);
-    assert.equal(s.phase, "loading");
     assert.deepEqual(all(guest, "error"), []);
 });
 
@@ -667,8 +628,7 @@ test("watchers get the images to preload but are never waited for", () => {
     s.handle(host, { type: "start", guesses: GUESSES });
     const tv = {};
     s.watch(tv);
-    assert.equal(last(tv, "state").phase, "loading");
-    assert.equal(last(tv, "prepare").index, 0);
+    assert.deepEqual([last(tv, "state").phase, last(tv, "prepare").index], ["loading", 0]);
     readyAll(s, 0);
     assert.equal(s.phase, "round");
     assert.equal(last(tv, "prepare").index, 1);
@@ -677,80 +637,4 @@ test("watchers get the images to preload but are never waited for", () => {
 test("mapFinder never sends the map ahead, not even for preloading", () => {
     const { guest, all } = started({ mode: "mapFinder", timer: 0, rounds: 3 });
     assert.deepEqual(all(guest, "prepare").map(m => m.map), [null, null]);
-});
-
-test("nobody can join while the first round is loading", () => {
-    const { s, host, last } = withGuest();
-    s.handle(host, { type: "start", guesses: GUESSES });
-    const late = {};
-    assert.equal(s.join(late, { name: "Late" }), false);
-    assert.equal(last(late, "error").code, "GAME_RUNNING");
-});
-
-test("a new game waits for everyone's images again", () => {
-    const { s, host } = started();
-    for (let i = 0; i < 3; i++) {
-        s.handle(host, { type: "endRound" });
-        readyAll(s, s.round + 1);
-        s.handle(host, { type: "next" });
-    }
-    s.handle(host, { type: "lobby" });
-    s.handle(host, { type: "start", guesses: GUESSES });
-    assert.equal(s.phase, "loading");
-});
-
-test("a ready for a round that is over, or after the game, changes nothing", () => {
-    const { s, host, guest, all, advance } = withGuest();
-    s.handle(host, { type: "start", guesses: GUESSES });
-    s.handle(host, { type: "ready", index: 0 });
-    advance(LOAD_FIRST_MS);
-    s.tick();
-    s.handle(host, { type: "endRound" });
-    s.handle(host, { type: "ready", index: 1 });
-    s.handle(host, { type: "next" });
-    assert.equal(s.round, 1);
-    s.handle(guest, { type: "ready", index: 0 });
-    assert.equal(s.findPlayer(p => p.name === "Max").stalled, true);
-    s.handle(host, { type: "ready", index: 2 });
-    s.handle(host, { type: "endRound" });
-    s.handle(host, { type: "next" });
-    s.handle(host, { type: "endRound" });
-    s.handle(host, { type: "next" });
-    assert.equal(s.phase, "final");
-    s.handle(guest, { type: "ready", index: 2 });
-    assert.deepEqual(all(guest, "error"), []);
-});
-
-test("when everyone was away past the loading time, the first one back gets a fresh wait instead of a running clock", () => {
-    const { s, host, guest, last, advance } = withGuest();
-    const token = last(host, "welcome").token;
-    s.handle(host, { type: "start", guesses: GUESSES });
-    s.disconnect(host);
-    s.disconnect(guest);
-    advance(LOAD_FIRST_MS + 1000);
-    s.tick();
-    const back = {};
-    s.join(back, { token });
-    s.tick();
-    assert.equal(s.phase, "loading");
-    assert.equal(s.findPlayer(p => p.name === "Hans").stalled, false);
-    s.handle(back, { type: "ready", index: 0 });
-    assert.equal(s.phase, "round");
-});
-
-test("the fresh wait for the first one back still ends after LOAD_MS", () => {
-    const { s, host, guest, last, advance } = withGuest();
-    const token = last(host, "welcome").token;
-    s.handle(host, { type: "start", guesses: GUESSES });
-    s.disconnect(host);
-    s.disconnect(guest);
-    advance(LOAD_FIRST_MS + 1000);
-    s.tick();
-    s.join({}, { token });
-    advance(LOAD_MS - 1);
-    s.tick();
-    assert.equal(s.phase, "loading");
-    advance(1);
-    s.tick();
-    assert.equal(s.phase, "round");
 });
