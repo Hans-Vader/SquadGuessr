@@ -60,6 +60,7 @@
         "waitingForHost": "等待房主中...",
         "waitingForPlayers": "等待其他玩家中 ({{answered}}/{{total}})",
         "loadingImages": "图片加载中…（{{ready}}/{{total}}）",
+        "startingIn": "{{seconds}} 秒后开始…",
         "gameRunning": "游戏已经开始，你仍可以观看。",
         "reconnecting": "正在重新连接...",
         "showOnScreen": "在大屏幕上显示",
@@ -69,6 +70,9 @@
             "create": "创建房间",
             "join": "加入",
             "start": "开始",
+            "forceStart": "强制开始",
+            "ready": "准备",
+            "cancel": "取消",
             "leave": "离开",
             "endRound": "结束回合",
             "watch": "观看"

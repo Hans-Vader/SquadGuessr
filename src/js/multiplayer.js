@@ -2,7 +2,7 @@ import i18next from "i18next";
 import { LatLngBounds } from "leaflet";
 import QRCode from "qrcode";
 import { guessMarker } from "./guessMarker.js";
-import { updateOffset } from "./clock.js";
+import { updateOffset, secondsUntil } from "./clock.js";
 import Preloader from "./preloader.js";
 import { findMap, basemapUrl } from "./data/maps.js";
 
@@ -36,6 +36,8 @@ export default class Multiplayer {
         this.nextTimer = null;
         // the guess request of a START click that is still running, null otherwise
         this.guessFetch = null;
+        // ticks the start countdown on between two states, null when none runs
+        this.startTimer = null;
     }
 
     init() {
@@ -60,6 +62,15 @@ export default class Multiplayer {
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
         $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
         $("#BUTTON_MP_START").on("click", () => this.start());
+        $("#BUTTON_MP_READY").on("click", () => {
+            const me = this.state?.players.find(p => p.id === this.me);
+            if (me) this.send({ type: "lobbyReady", ready: !me.lobbyReady });
+        });
+        $("#BUTTON_MP_CANCEL").on("click", () => {
+            // one click is enough: a second one would only arrive after the start is off (INVALID); renderLobbyButtons unlocks
+            $("#BUTTON_MP_CANCEL").prop("disabled", true);
+            this.send({ type: "cancelStart" });
+        });
         $("#BUTTON_MP_WATCH").on("click", () => this.watchRunning());
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
@@ -210,6 +221,7 @@ export default class Multiplayer {
         this.watching = false;
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
+        clearInterval(this.startTimer);
         clearTimeout(this.nextTimer);
         this.guessFetch = null;
         // the lock ends with the game: singleplayer never unlocks RESULTS itself
@@ -333,7 +345,11 @@ export default class Multiplayer {
         if (me) $("#totalPoints").text(me.score);
 
         this.renderStatus();
-        if (s.phase === "lobby") this.showRoom();
+        if (s.phase === "lobby") {
+            // a start that was called off leaves nothing loading or retrying behind
+            this.preloader.keep([]);
+            this.showRoom();
+        }
         // a page that (re)opened while everyone waits for the images: the room shows who is loading, not the menu
         if (s.phase === "loading" && !$("#map_ui").is(":visible")) this.showRoom();
     }
@@ -347,24 +363,22 @@ export default class Multiplayer {
         const host = this.isHost();
         const last = s.round + 1 === s.total;
         const loading = s.phase === "loading";
+        // round 1 is on its way (countdown, then maybe slow devices): the host can still call it off
+        const starting = loading && s.round === 0;
         $("#BUTTON_MP_ENDROUND").prop("hidden", s.phase !== "round" || !host || s.settings.timer > 0);
         // any answer from the server unlocks NEXT / RESULTS (see next())
         clearTimeout(this.nextTimer);
         this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
         this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !host || !last, disabled: false });
+        this.renderLobbyButtons(s, starting);
         // the lobby stays on screen while the first round loads: the start went through, the settings are fixed
-        this.app.setButtonLoading($("#BUTTON_MP_START"), loading || Boolean(this.guessFetch));
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
+        clearInterval(this.startTimer);
         if (loading) {
-            const waited = s.players.filter(p => p.connected && !p.stalled);
-            const text = i18next.t("mp.loadingImages", {
-                ns: "common",
-                ready: waited.filter(p => p.ready).length,
-                total: waited.length,
-            });
-            $("#mpStatus, #mpLobbyStatus").text(text);
+            this.renderLoadingStatus();
+            if (s.startsAt !== null) this.startTimer = setInterval(() => this.renderLoadingStatus(), 250);
             $("#mpStatus").prop("hidden", false);
             return;
         }
@@ -377,6 +391,42 @@ export default class Multiplayer {
             total: online.length,
         });
         $("#mpStatus").text(text).prop("hidden", !this.answered && !this.watching);
+    }
+
+    /**
+     * READY for guests, START / START ANYWAY and CANCEL for the host
+     */
+    renderLobbyButtons(s, starting) {
+        const me = s.players.find(p => p.id === this.me);
+        $("#BUTTON_MP_READY").prop("hidden", s.phase !== "lobby").attr("aria-pressed", String(Boolean(me?.lobbyReady)));
+        const $start = $("#BUTTON_MP_START");
+        this.app.setButtonLoading($start, Boolean(this.guessFetch));
+        $start.prop("hidden", starting);
+        // not while it spins: setButtonLoading puts back the text it saved when the spinning began
+        if (!this.guessFetch) {
+            // the server's rule (Session.allReady): every connected guest is ready, the host's START is their ready
+            const allReady = s.players.every(p => !p.connected || p.id === s.hostId || p.lobbyReady);
+            const key = allReady ? "mp.buttons.start" : "mp.buttons.forceStart";
+            // through data-i18n, so a language switch keeps the right label
+            $start.attr("data-i18n", `common:${key}`).text(i18next.t(key, { ns: "common" }));
+        }
+        $("#BUTTON_MP_CANCEL").prop("hidden", !starting);
+        // a clicked CANCEL stays locked until the start is off or round 1 runs
+        if (!starting) $("#BUTTON_MP_CANCEL").prop("disabled", false);
+    }
+
+    /**
+     * Status line while a round waits: before round 1 the countdown, then how many have their images (startTimer ticks it)
+     */
+    renderLoadingStatus() {
+        const s = this.state;
+        const left = s.startsAt === null ? 0 : secondsUntil(s.startsAt, this.offset, Date.now());
+        if (left === 0) clearInterval(this.startTimer);
+        const waited = s.players.filter(p => p.connected && !p.stalled);
+        const text = left > 0
+            ? i18next.t("mp.startingIn", { ns: "common", seconds: left })
+            : i18next.t("mp.loadingImages", { ns: "common", ready: waited.filter(p => p.ready).length, total: waited.length });
+        $("#mpStatus, #mpLobbyStatus").text(text);
     }
 
     // ===== GAME =====
@@ -469,7 +519,7 @@ export default class Multiplayer {
         if (!deadline) return;
 
         const tick = () => {
-            const left = Math.max(0, Math.ceil((deadline - Date.now() - (this.offset ?? 0)) / 1000));
+            const left = secondsUntil(deadline, this.offset, Date.now());
             this.app.updateTimerDisplay(left);
             if (left > 0) return;
             clearInterval(this.countdown);
@@ -603,7 +653,7 @@ export default class Multiplayer {
 
     renderPlayers(s) {
         const items = s.players.map(p => $("<li>")
-            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
+            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
             .toggleClass("me", p.id === this.me));
         $("#mpPlayers").empty().append(items);
@@ -614,6 +664,14 @@ export default class Multiplayer {
             // in front of the name: the ranking cuts long names off with an ellipsis, which would hide a mark behind them
             if (p) $(li).find(".name").text([this.loadMark(s, p), p.name].filter(Boolean).join(" "));
         });
+    }
+
+    /**
+     * ✓ for whoever answered the running round, and in the lobby for a guest who is ready (the host never needs to be)
+     */
+    doneMark(s, p) {
+        if (s.phase === "round") return p.answered;
+        return s.phase === "lobby" && p.lobbyReady && p.id !== s.hostId;
     }
 
     /**

@@ -59,6 +59,18 @@
     #mpWatchLink {
         color: #aaa;
     }
+    // a ready guest's button turns green and gets a tick
+    #BUTTON_MP_READY[aria-pressed="true"] {
+        background: variables.$newColor;
+        &::before {
+            content: "✓ ";
+        }
+    }
+    // the start countdown: what everyone in the room looks at
+    #mpLobbyStatus {
+        font-size: 1.5em;
+        font-weight: bold;
+    }
 }
 
 #lobby [hidden],
@@ -213,7 +225,8 @@ body.mp-host {
 body.watch-mode {
     #actions,
     #score,
-    #mpEntry {
+    #mpEntry,
+    #BUTTON_MP_READY {
         display: none !important;
     }
     // leaflet sets pointer-events on its own layers, so the children need it too

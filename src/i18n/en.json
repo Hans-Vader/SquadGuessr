@@ -60,6 +60,7 @@
         "waitingForHost": "Waiting for the host…",
         "waitingForPlayers": "Waiting for others ({{answered}}/{{total}})",
         "loadingImages": "Loading images… ({{ready}}/{{total}})",
+        "startingIn": "Starting in {{seconds}} s…",
         "gameRunning": "This game has already started. You can still watch it.",
         "reconnecting": "Reconnecting…",
         "showOnScreen": "Show on a big screen",
@@ -69,6 +70,9 @@
             "create": "CREATE SESSION",
             "join": "JOIN",
             "start": "START",
+            "forceStart": "START ANYWAY",
+            "ready": "READY",
+            "cancel": "CANCEL",
             "leave": "LEAVE",
             "endRound": "END ROUND",
             "watch": "WATCH"
