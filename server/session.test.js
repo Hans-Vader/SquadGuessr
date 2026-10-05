@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS } from "./session.js";
+import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS } from "./session.js";
 import { mapSize } from "../src/js/scoring.js";
 
 const CLASSIC = { mode: "classic", timer: 0, rounds: 3 };
@@ -18,7 +18,15 @@ function setup(settings = CLASSIC) {
     const last = (conn, type) => all(conn, type).at(-1);
     const host = { id: "host" };
     s.create(host, { name: "Hans", settings });
-    return { s, sent, host, all, last, advance: (ms) => { t += ms; } };
+    const advance = (ms) => { t += ms; };
+    // a started game reaches round 1: every device has its images and the countdown (at most the long one) ran out
+    const begin = (conn = host) => {
+        s.handle(conn, { type: "start", guesses: GUESSES });
+        readyAll(s, 0);
+        advance(COUNTDOWN_FORCED_MS);
+        s.tick();
+    };
+    return { s, sent, host, all, last, advance, begin };
 }
 
 function withGuest(settings) {
@@ -35,8 +43,7 @@ function readyAll(s, i) {
 
 function started(settings) {
     const ctx = withGuest(settings);
-    ctx.s.handle(ctx.host, { type: "start", guesses: GUESSES });
-    readyAll(ctx.s, 0);
+    ctx.begin();
     return ctx;
 }
 
@@ -266,12 +273,11 @@ test("final ranking with a tie has two winners, lobby resets", () => {
 });
 
 test("watchers receive state and rounds but cannot act", () => {
-    const { s, host, last } = withGuest();
+    const { s, last, begin } = withGuest();
     const tv = {};
     assert.equal(s.watch(tv), true);
     assert.equal(last(tv, "state").phase, "lobby");
-    s.handle(host, { type: "start", guesses: GUESSES });
-    readyAll(s, 0);
+    begin();
     assert.equal(last(tv, "round").index, 0);
     s.handle(tv, { type: "answer", index: s.round, lat: 1, lng: 1 });
     assert.equal(last(tv, "error").code, "INVALID");
@@ -329,13 +335,12 @@ test("leaving a running game keeps the player's score but marks them offline", (
 });
 
 test("a host who leaves hands the host role to the next connected player", () => {
-    const { s, host, guest, last } = withGuest();
+    const { s, host, guest, last, begin } = withGuest();
     s.handle(host, { type: "leave" });
     const state = last(guest, "state");
     assert.equal(state.hostId, last(guest, "welcome").playerId);
     assert.deepEqual(state.players.map(p => p.name), ["Max"]);
-    s.handle(guest, { type: "start", guesses: GUESSES });
-    readyAll(s, 0);
+    begin(guest);
     assert.equal(s.phase, "round");
 });
 
@@ -361,12 +366,11 @@ test("a host whose connection drops in the lobby stays host and can come back", 
 });
 
 test("a lobby guest whose connection drops keeps their place and can still get into the game", () => {
-    const { s, host, guest, last } = withGuest();
+    const { s, host, guest, last, begin } = withGuest();
     const token = last(guest, "welcome").token;
     s.disconnect(guest);
     assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected]), [["Hans", true], ["Max", false]]);
-    s.handle(host, { type: "start", guesses: GUESSES });
-    readyAll(s, 0);
+    begin();
     const phone = {};
     assert.equal(s.join(phone, { name: "Max", token }), true);
     assert.equal(last(phone, "round").index, 0);
@@ -435,7 +439,7 @@ test("a host who is gone longer than a reload hands the host role to a connected
 });
 
 test("when nobody connected holds the host role, the next player who is there gets it", () => {
-    const { s, host, last } = setup();
+    const { s, host, last, begin } = setup();
     const tv = {};
     s.watch(tv);
     s.handle(host, { type: "leave" });
@@ -443,8 +447,7 @@ test("when nobody connected holds the host role, the next player who is there ge
     s.join(phone, { name: "Hans" });
     s.tick();
     assert.equal(last(tv, "state").hostId, last(phone, "welcome").playerId);
-    s.handle(phone, { type: "start", guesses: GUESSES });
-    readyAll(s, 0);
+    begin(phone);
     assert.equal(s.phase, "round");
 });
 
@@ -474,24 +477,27 @@ test("back in the lobby, players who left or dropped out during the game are gon
 
 test("a round is held back until every connected player has its images, and its clock starts only then", () => {
     const { s, host, guest, last, advance } = withGuest({ mode: "classic", timer: 15, rounds: 3 });
+    s.handle(guest, { type: "lobbyReady", ready: true });
     s.handle(host, { type: "start", guesses: GUESSES });
     assert.equal(last(guest, "state").phase, "loading");
     assert.deepEqual(last(guest, "prepare"), { type: "prepare", index: 0, url: "/img/guesses/a.webp", map: "Narva" });
     assert.equal(last(guest, "round"), undefined);
     s.handle(host, { type: "answer", index: 0, lat: -100, lng: 200 });
     assert.equal(last(host, "error").code, "INVALID");
-    advance(3000);
+    advance(COUNTDOWN_READY_MS);
     s.handle(host, { type: "ready", index: 0 });
     assert.deepEqual(last(guest, "state").players.map(p => [p.name, p.ready, p.stalled]), [["Hans", true, false], ["Max", false, false]]);
+    advance(3000);
     s.handle(guest, { type: "ready", index: 0 });
     assert.equal(s.phase, "round");
-    assert.equal(last(guest, "round").deadline, 1000 + 3000 + 15000);
+    assert.equal(last(guest, "round").deadline, 1000 + COUNTDOWN_READY_MS + 3000 + 15000);
 });
 
 test("loading waits at most LOAD_FIRST_MS, then LOAD_MS; who missed it is not waited for until they report back", () => {
     const { s, host, guest, last, advance } = withGuest();
     const max = () => s.findPlayer(p => p.name === "Max");
     const skip = (i) => { s.handle(host, { type: "endRound" }); s.handle(host, { type: "ready", index: i }); s.handle(host, { type: "next" }); };
+    s.handle(guest, { type: "lobbyReady", ready: true });
     s.handle(host, { type: "start", guesses: GUESSES });
     s.handle(host, { type: "ready", index: 0 });
     advance(LOAD_FIRST_MS - 1);
@@ -544,11 +550,14 @@ test("preloaded rounds start at once and announce the next; a new game waits for
 });
 
 test("a player who drops or leaves while loading is not waited for", () => {
-    const { s, host, guest } = withGuest();
+    const { s, host, guest, advance } = withGuest();
     const ida = {};
     s.join(ida, { name: "Ida" });
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    s.handle(ida, { type: "lobbyReady", ready: true });
     s.handle(host, { type: "start", guesses: GUESSES });
     s.handle(host, { type: "ready", index: 0 });
+    advance(COUNTDOWN_READY_MS);
     s.disconnect(guest);
     s.tick();
     assert.equal(s.phase, "loading");
@@ -558,6 +567,7 @@ test("a player who drops or leaves while loading is not waited for", () => {
 
 test("with everyone away, loading waits; the first one back gets a fresh wait that still ends after LOAD_MS", () => {
     const { s, host, guest, last, advance } = withGuest();
+    s.handle(guest, { type: "lobbyReady", ready: true });
     s.handle(host, { type: "start", guesses: GUESSES });
     s.disconnect(host);
     s.disconnect(guest);
@@ -579,6 +589,7 @@ test("with everyone away, loading waits; the first one back gets a fresh wait th
 test("a player who reconnects gets the images again: while loading without extending the time, later for the next round", () => {
     const { s, host, guest, last, advance } = withGuest();
     const back = () => { const conn = {}; s.disconnect(s.findPlayer(p => p.name === "Max").conn); s.join(conn, { token: last(guest, "welcome").token }); return conn; };
+    s.handle(guest, { type: "lobbyReady", ready: true });
     s.handle(host, { type: "start", guesses: GUESSES });
     s.handle(host, { type: "ready", index: 0 });
     advance(5000);
@@ -624,12 +635,14 @@ test("odd ready messages are ignored silently: outside a game, not announced, st
 });
 
 test("watchers get the images to preload but are never waited for", () => {
-    const { s, host, last } = withGuest();
+    const { s, host, last, advance } = withGuest();
     s.handle(host, { type: "start", guesses: GUESSES });
     const tv = {};
     s.watch(tv);
     assert.deepEqual([last(tv, "state").phase, last(tv, "prepare").index], ["loading", 0]);
     readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
     assert.equal(s.phase, "round");
     assert.equal(last(tv, "prepare").index, 1);
 });
@@ -637,4 +650,84 @@ test("watchers get the images to preload but are never waited for", () => {
 test("mapFinder never sends the map ahead, not even for preloading", () => {
     const { guest, all } = started({ mode: "mapFinder", timer: 0, rounds: 3 });
     assert.deepEqual(all(guest, "prepare").map(m => m.map), [null, null]);
+});
+
+// ===== LOBBY READY AND START COUNTDOWN =====
+
+test("guests mark themselves ready in the lobby; odd marks and marks outside the lobby are ignored silently", () => {
+    const { s, host, guest, sent, all, last } = withGuest();
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.lobbyReady]), [["Hans", false], ["Max", true]]);
+    const before = sent.length;
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    s.handle(guest, { type: "lobbyReady", ready: "false" });
+    s.handle(guest, { type: "lobbyReady" });
+    assert.equal(sent.length, before);
+    s.handle(guest, { type: "lobbyReady", ready: false });
+    assert.equal(last(host, "state").players.find(p => p.name === "Max").lobbyReady, false);
+    s.handle(host, { type: "start", guesses: GUESSES });
+    const starting = sent.length;
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    assert.equal(sent.length, starting);
+    assert.deepEqual(all(guest, "error"), []);
+});
+
+test("every start counts down: 5 s when every connected guest is ready, otherwise 15 s", () => {
+    const countdown = (prepare) => {
+        const ctx = withGuest();
+        prepare(ctx);
+        ctx.s.handle(ctx.host, { type: "start", guesses: GUESSES });
+        return ctx.last(ctx.host, "state").startsAt - 1000;
+    };
+    assert.equal(countdown(() => {}), COUNTDOWN_FORCED_MS);
+    assert.equal(countdown(({ s, guest }) => s.handle(guest, { type: "lobbyReady", ready: true })), COUNTDOWN_READY_MS);
+    // a guest whose connection dropped is not waited for; the host's START is their ready
+    assert.equal(countdown(({ s, guest }) => s.disconnect(guest)), COUNTDOWN_READY_MS);
+    const alone = setup();
+    alone.s.handle(alone.host, { type: "start", guesses: GUESSES });
+    assert.equal(alone.last(alone.host, "state").startsAt, 1000 + COUNTDOWN_READY_MS);
+});
+
+test("round 1 never starts before the countdown ends, even with every image there", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    readyAll(s, 0);
+    assert.equal(s.phase, "loading");
+    advance(COUNTDOWN_FORCED_MS - 1);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    advance(1);
+    s.tick();
+    assert.equal(s.phase, "round");
+    assert.equal(last(guest, "state").startsAt, null);
+});
+
+test("the long countdown is the whole wait for round 1: who still loads when it ends is not waited for", () => {
+    const { s, host, advance } = withGuest();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(host, { type: "ready", index: 0 });
+    advance(COUNTDOWN_FORCED_MS - 1);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    advance(1);
+    s.tick();
+    assert.equal(s.phase, "round");
+    assert.equal(s.findPlayer(p => p.name === "Max").stalled, true);
+});
+
+test("after a game nobody is ready any more, and the next game starts from the lobby only", () => {
+    const { s, host, guest, last, begin } = withGuest();
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    begin();
+    for (let i = 0; i < 3; i++) {
+        s.handle(host, { type: "endRound" });
+        readyAll(s, s.round + 1);
+        s.handle(host, { type: "next" });
+    }
+    assert.equal(s.phase, "final");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(last(host, "error").code, "INVALID");
+    assert.equal(s.phase, "final");
+    s.handle(host, { type: "lobby" });
+    assert.equal(last(guest, "state").players.find(p => p.name === "Max").lobbyReady, false);
 });
