@@ -1,0 +1,74 @@
+// how often a failed image is tried again, here and for the images on screen
+export const RETRY_MS = 1000;
+
+/**
+ * Loads images ahead of time and keeps them referenced, so the <img> that shows them later gets them without a
+ * request: the API sends max-age=0, and without a live reference Chrome would ask the server again
+ */
+export default class Preloader {
+    constructor({
+        createImage = () => new Image(),
+        retryMs = RETRY_MS,
+        // wrapped: browsers throw "Illegal invocation" when setTimeout is called as a method of another object
+        setTimer = (fn, ms) => setTimeout(fn, ms),
+        clearTimer = (id) => clearTimeout(id),
+    } = {}) {
+        this.createImage = createImage;
+        this.retryMs = retryMs;
+        this.setTimer = setTimer;
+        this.clearTimer = clearTimer;
+        this.entries = new Map();
+        this.queue = Promise.resolve();
+    }
+
+    /**
+     * Loads the urls one after another (each starts after the previous one's first attempt, so they do not share
+     * the bandwidth) and resolves once all of them loaded. A failed one is retried every retryMs in the background.
+     */
+    load(urls, { low = false } = {}) {
+        return Promise.all(urls.map((url) => {
+            let entry = this.entries.get(url);
+            if (!entry) {
+                entry = { url, low, img: null, timer: null, dropped: false };
+                entry.loaded = new Promise((resolve) => { entry.resolve = resolve; });
+                this.entries.set(url, entry);
+                this.queue = this.queue.then(() => this.attempt(entry));
+            }
+            return entry.loaded;
+        }));
+    }
+
+    /**
+     * Forgets every image but these: their retries stop and their downloads no longer count
+     */
+    keep(urls) {
+        this.entries.forEach((entry, url) => {
+            if (urls.includes(url)) return;
+            entry.dropped = true;
+            this.clearTimer(entry.timer);
+            this.entries.delete(url);
+        });
+    }
+
+    /**
+     * One download attempt; resolves once it settled (loaded or failed) so the queue can move on
+     */
+    attempt(entry) {
+        return new Promise((settled) => {
+            if (entry.dropped) return settled();
+            const img = this.createImage();
+            entry.img = img;
+            // before src: the priority only applies to a download that has not started yet
+            if (entry.low) img.fetchPriority = "low";
+            img.onload = () => {
+                if (!entry.dropped) entry.resolve();
+                settled();
+            };
+            img.onerror = () => {
+                settled();
+                if (!entry.dropped) entry.timer = this.setTimer(() => this.attempt(entry), this.retryMs);
+            };
+            img.src = entry.url;
+        });
+    }
+}
