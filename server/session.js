@@ -7,7 +7,7 @@ export const MAX_WATCHERS = 20;
 export const GRACE_MS = 1000;
 export const RECONNECT_MS = 15 * 1000;
 // how long a round waits for slow devices to load its images: the first one cold, later ones were preloaded
-export const LOAD_FIRST_MS = 12 * 1000;
+export const LOAD_FIRST_MS = 10 * 1000;
 export const LOAD_MS = 5 * 1000;
 
 const HOST_ACTIONS = ["settings", "start", "endRound", "next", "lobby"];
