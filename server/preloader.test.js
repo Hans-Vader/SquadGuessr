@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import Preloader from "../src/js/preloader.js";
+import Preloader, { retryDelay } from "../src/js/preloader.js";
 
 // fake images record each download attempt when their src is set; fake timers fire on demand
 function setup() {
@@ -36,7 +36,7 @@ test("resolves once the image loaded, and the same url is not downloaded twice",
     assert.equal(images.length, 1);
 });
 
-test("a failed image is retried every second until it loads, and only then counts as loaded", async () => {
+test("a failed image is retried after 1 s, 2 s, 4 s ... until it loads, and only then counts as loaded", async () => {
     const { preloader, images, timers, flush, fire } = setup();
     let done = false;
     preloader.load(["/a"]).then(() => { done = true; });
@@ -48,10 +48,26 @@ test("a failed image is retried every second until it loads, and only then count
     fire();
     assert.equal(images.length, 2);
     images[1].onerror();
+    assert.equal(timers[0].ms, 2000);
     fire();
     images[2].onload();
     await flush();
     assert.equal(done, true);
+});
+
+test("retries back off by doubling and never wait longer than 10 s", () => {
+    assert.deepEqual([1, 2, 3, 4, 5, 6, 20].map(retryDelay), [1000, 2000, 4000, 8000, 10000, 10000, 10000]);
+});
+
+test("a download that never settles stops holding up the queue once keep drops it", async () => {
+    const { preloader, images, flush } = setup();
+    preloader.load(["/hangs"]);
+    preloader.load(["/next"]);
+    await flush();
+    assert.deepEqual(images.map(i => i.url), ["/hangs"]);
+    preloader.keep(["/next"]);
+    await flush();
+    assert.deepEqual(images.map(i => i.url), ["/hangs", "/next"]);
 });
 
 test("images load one after another: the map starts after the hint's first attempt", async () => {

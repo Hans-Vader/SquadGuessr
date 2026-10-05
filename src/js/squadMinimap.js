@@ -2,7 +2,7 @@ import { ImageOverlay, Map, CRS, SVG, Util, LayerGroup, Popup, LatLngBounds, Bro
 import { App } from "../app.js";
 import { guessMarker } from "./guessMarker.js";
 import { basemapUrl } from "./data/maps.js";
-import { RETRY_MS } from "./preloader.js";
+import { retryDelay } from "./preloader.js";
 import "./libs/leaflet-smoothWheelZoom.js";
 import "./libs/leaflet-edgebuffer.js";
 import "./libs/leaflet-spin.js";
@@ -105,15 +105,16 @@ export const squadMinimap = Map.extend({
         this.detailedZoomThreshold = ( 3 + (this.activeMap.size / 7000) ) * 0.8;
        
         // load map
-        return this.changeLayer(true);
+        return this.changeLayer();
     },
 
 
     /**
      * remove existing layer and replace it; resolves after the first attempt (loaded or failed).
-     * A map image that failed is retried every second while it is still the one on screen
+     * A map image that failed is retried (see retryDelay) while it is still the one on screen
+     * @param {Number} [failures] - failed attempts so far, for the retry delay
      */
-    changeLayer: function() {
+    changeLayer: function(failures = 0) {
         const OLDLAYER = this.activeLayer;
 
         // Show spinner
@@ -141,8 +142,8 @@ export const squadMinimap = Map.extend({
                 resolve();
                 // a newer changeLayer (next round, another map) replaces this layer and so ends the retries
                 setTimeout(() => {
-                    if (this.activeLayer === layer && $("#map_ui").is(":visible")) this.changeLayer();
-                }, RETRY_MS);
+                    if (this.activeLayer === layer && $("#map_ui").is(":visible")) this.changeLayer(failures + 1);
+                }, retryDelay(failures + 1));
             });
         });
     },

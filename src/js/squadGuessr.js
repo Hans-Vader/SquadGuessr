@@ -8,7 +8,7 @@ import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
 import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
-import { RETRY_MS } from "./preloader.js";
+import { retryDelay } from "./preloader.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -338,13 +338,14 @@ export default class SquadGuessr {
 
     /**
      * Shows the current guess's hint image; resolves after the first attempt (loaded or failed), so a timer waiting
-     * for it always starts. A failed image is retried every second while this guess is still on the game screen
+     * for it always starts. A failed image is retried (see retryDelay) while this guess is still on the game screen
      */
     setupHint() {
         const $hint = $("#hint");
         const $wrapper = $("#hint-wrapper");
         const guess = this.currentGuess;
         const url = this.hintUrl(guess.url);
+        let failures = 0;
 
         clearTimeout(this.hintRetry);
         $hint.off("load error");
@@ -374,7 +375,7 @@ export default class SquadGuessr {
                     if (this.currentGuess?.url !== guess.url || !$("#map_ui").is(":visible")) return;
                     $hint.attr("src", "");
                     $hint.attr("src", url);
-                }, RETRY_MS);
+                }, retryDelay(++failures));
             });
         });
     }
