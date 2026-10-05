@@ -139,8 +139,8 @@ export default class SquadGuessr {
 
         this.BUTTON_NEWGAME.on("click", () => this.startNewGame());
         this.BUTTON_GUESS.on("click", () => this.handleGuess());
-        this.BUTTON_NEXT.on("click", () => this.mp.active ? this.mp.send({ type: "next" }) : this.loadNextGuess());
-        this.BUTTON_RESULTS.on("click", () => this.mp.active ? this.mp.send({ type: "next" }) : this.showResults());
+        this.BUTTON_NEXT.on("click", () => this.mp.active ? this.mp.next() : this.loadNextGuess());
+        this.BUTTON_RESULTS.on("click", () => this.mp.active ? this.mp.next() : this.showResults());
 
     }
 
