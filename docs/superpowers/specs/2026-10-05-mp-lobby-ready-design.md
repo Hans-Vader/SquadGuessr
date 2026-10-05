@@ -37,7 +37,7 @@ Die Spieler zeigen in der Lobby an, dass sie bereit sind. Jeder Start beginnt mi
 | Frist für Runde 1 | `loadUntil = max(startsAt, Start + LOAD_FIRST_MS)` |
 | Wer zählt für „alle bereit“ | Verbundene Spieler ohne den Host. Getrennte Spieler und Zuschauer zählen nie |
 | Abbrechen | Host-Aktion `cancelStart`, solange Runde 1 noch nicht läuft |
-| Ready nach Abbrechen | Bleibt stehen |
+| Ready nach Abbrechen | Bleibt stehen. Wer während des Countdowns gegangen ist, ist danach weg wie in der normalen Lobby |
 | Ready nach einem Spiel | `toLobby()` setzt es zurück |
 | Start aus `final` | Nicht mehr erlaubt. Kein Client nutzt das, und die ✓ wären veraltet |
 | Name im Protokoll | `lobbyReady`, weil `ready` im Branch schon „Bilder geladen“ heißt |
@@ -90,7 +90,9 @@ export const COUNTDOWN_FORCED_MS = 15 * 1000;
 - **`startRound()`:** setzt `startsAt = null`.
 - **`cancelStart(conn)`:**
   - Nur in Phase `loading` mit `round === 0`, sonst `INVALID`.
-  - Setzt `phase = "lobby"`, `guesses = []`, `startsAt = null`, `loadUntil = null` und ruft `resetScores()` auf (setzt `ready`/`stalled` zurück). Danach `broadcastState()`.
+  - Setzt `phase = "lobby"`, `guesses = []`, `startsAt = null`, `loadUntil = null`.
+  - Entfernt Spieler, die nicht mehr da sind (`!isPresent(p)`): Wer während des Countdowns gegangen ist, ist wie in der Lobby weg. Wer gerade neu lädt, behält seinen Platz.
+  - Ruft `resetScores()` auf (setzt `ready`/`stalled` zurück). Danach `broadcastState()`.
 - Den Kommentar am Klassenkopf anpassen: Runde 1 wartet mindestens bis zum Ende des Countdowns.
 
 Ohne Änderung, weil der Branch es schon abdeckt:
@@ -127,7 +129,7 @@ In `.button-container` kommen dazu:
 
 ### `src/components/lobby/lobby.scss`
 
-- `#BUTTON_MP_READY[aria-pressed="true"]` ist hervorgehoben (`variables.$mainColor`) und bekommt per `::before` ein „✓ “.
+- `#BUTTON_MP_READY[aria-pressed="true"]` wird grün (`variables.$newColor`, Buttons sind sonst `$mainColor`) und bekommt per `::before` ein „✓ “.
 - `#mpLobbyStatus` bekommt eine große Schrift, sie ist nur während des Startens sichtbar.
 - `body.watch-mode`: `#BUTTON_MP_READY` ausblenden. Zuschauer sind kein Host, also wäre `guest-only` sonst sichtbar.
 
@@ -156,6 +158,7 @@ In `.button-container` kommen dazu:
 | Reconnect / Big Screen öffnet während des Countdowns | Lobby-Ansicht mit Countdown (`startsAt` im State) |
 | CANCEL nach dem Countdown, während noch geladen wird | Erlaubt (`round === 0`) |
 | CANCEL während einer Runde | `INVALID` |
+| Gast verlässt während des Countdowns, dann CANCEL | Er ist aus der Lobby verschwunden, wie bei LEAVE in der Lobby |
 | Abbrechen und sofort neu starten | Ein verspätetes `ready{0}` aus dem ersten Versuch kann mitzählen. Dieser Spieler sieht das Bild dann einen Moment später. Akzeptiert |
 | Nach einem Spiel zurück in die Lobby | Alle ✓ sind weg |
 
@@ -184,7 +187,7 @@ Neue Tests:
    - Bei 15 s startet die Runde bei 15 s.
 5. `cancelStart`:
    - Ein Gast bekommt `NOT_HOST`, in einer laufenden Runde gibt es `INVALID`.
-   - Danach: Phase `lobby`, `startsAt` ist `null`, `lobbyReady` bleibt, `ready`/`stalled` sind zurückgesetzt, und ein neuer `start` funktioniert.
+   - Danach: Phase `lobby`, `startsAt` ist `null`, `lobbyReady` bleibt, `ready`/`stalled` sind zurückgesetzt, wer während des Countdowns gegangen ist, ist weg, und ein neuer `start` funktioniert.
 6. `toLobby` setzt `lobbyReady` zurück. `start` aus `final` ergibt `INVALID`.
 7. `state` enthält `startsAt` und `lobbyReady`.
 
