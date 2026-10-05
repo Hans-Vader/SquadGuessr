@@ -140,8 +140,8 @@ export class Session {
         this.guesses = [];
         this.startsAt = null;
         this.loadUntil = null;
-        // like leaving the lobby: who left during the countdown is gone, a reload in progress keeps its place
-        this.players.forEach(p => { if (!this.isPresent(p)) this.players.delete(p.id); });
+        // like the lobby: who pressed LEAVE during the countdown (leave() zeroes awayUntil) is gone, a dropped connection keeps its place
+        this.players.forEach(p => { if (!p.connected && p.awayUntil === 0) this.players.delete(p.id); });
         this.resetScores();
         this.broadcastState();
     }

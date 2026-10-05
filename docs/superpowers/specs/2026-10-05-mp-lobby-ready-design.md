@@ -37,7 +37,7 @@ Die Spieler zeigen in der Lobby an, dass sie bereit sind. Jeder Start beginnt mi
 | Frist für Runde 1 | `loadUntil = max(startsAt, Start + LOAD_FIRST_MS)` |
 | Wer zählt für „alle bereit“ | Verbundene Spieler ohne den Host. Getrennte Spieler und Zuschauer zählen nie |
 | Abbrechen | Host-Aktion `cancelStart`, solange Runde 1 noch nicht läuft |
-| Ready nach Abbrechen | Bleibt stehen. Wer während des Countdowns gegangen ist, ist danach weg wie in der normalen Lobby |
+| Ready nach Abbrechen | Bleibt stehen. Wer während des Countdowns LEAVE gedrückt hat, ist danach weg wie in der normalen Lobby; wer nur die Verbindung verloren hat, bleibt |
 | Ready nach einem Spiel | `toLobby()` setzt es zurück |
 | Start aus `final` | Nicht mehr erlaubt. Kein Client nutzt das, und die ✓ wären veraltet |
 | Name im Protokoll | `lobbyReady`, weil `ready` im Branch schon „Bilder geladen“ heißt |
@@ -91,7 +91,7 @@ export const COUNTDOWN_FORCED_MS = 15 * 1000;
 - **`cancelStart(conn)`:**
   - Nur in Phase `loading` mit `round === 0`, sonst `INVALID`.
   - Setzt `phase = "lobby"`, `guesses = []`, `startsAt = null`, `loadUntil = null`.
-  - Entfernt Spieler, die nicht mehr da sind (`!isPresent(p)`): Wer während des Countdowns gegangen ist, ist wie in der Lobby weg. Wer gerade neu lädt, behält seinen Platz.
+  - Entfernt Spieler, die während des Countdowns LEAVE gedrückt haben (`!connected && awayUntil === 0`, `leave()` setzt `awayUntil` auf 0): Sie sind wie in der Lobby weg. Wer nur die Verbindung verloren hat (neu lädt, Handy gesperrt, auch schon vor dem Start), behält seinen Platz und sein ✓.
   - Ruft `resetScores()` auf (setzt `ready`/`stalled` zurück). Danach `broadcastState()`.
 - Den Kommentar am Klassenkopf anpassen: Runde 1 wartet mindestens bis zum Ende des Countdowns.
 

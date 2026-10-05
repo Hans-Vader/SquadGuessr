@@ -767,3 +767,20 @@ test("the host can call the start off until round 1 runs: back to the lobby, rea
     assert.equal(last(host, "error").code, "INVALID");
     assert.equal(s.phase, "round");
 });
+
+test("a guest whose connection dropped in the lobby keeps their place through a called-off start", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    const token = last(guest, "welcome").token;
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    s.disconnect(guest);
+    advance(RECONNECT_MS + 60 * 1000);
+    s.tick();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(host, { type: "cancelStart" });
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected, p.lobbyReady]), [["Hans", true, false], ["Max", false, true]]);
+    // back with their token, even once the next start is running
+    s.handle(host, { type: "start", guesses: GUESSES });
+    const phone = {};
+    assert.equal(s.join(phone, { token }), true);
+    assert.equal(last(phone, "welcome").playerId, last(guest, "welcome").playerId);
+});
