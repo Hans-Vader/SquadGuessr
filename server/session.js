@@ -356,6 +356,8 @@ export class Session {
         // a reload loses the preloaded images: the client reports them again for the prepare that sendPhase resends
         player.ready = Math.min(player.ready, this.round - 1);
         player.stalled = false;
+        // everyone was away when loadUntil passed: the first one back gets a fresh wait, not a clock that starts at once
+        if (this.phase === "loading" && this.now() >= this.loadUntil) this.loadUntil = this.now() + LOAD_MS;
         this.welcome(player);
         this.broadcastState();
         this.sendPhase(conn);

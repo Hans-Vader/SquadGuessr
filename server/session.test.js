@@ -720,3 +720,37 @@ test("a ready for a round that is over, or after the game, changes nothing", () 
     s.handle(guest, { type: "ready", index: 2 });
     assert.deepEqual(all(guest, "error"), []);
 });
+
+test("when everyone was away past the loading time, the first one back gets a fresh wait instead of a running clock", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    const token = last(host, "welcome").token;
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.disconnect(host);
+    s.disconnect(guest);
+    advance(LOAD_FIRST_MS + 1000);
+    s.tick();
+    const back = {};
+    s.join(back, { token });
+    s.tick();
+    assert.equal(s.phase, "loading");
+    assert.equal(s.findPlayer(p => p.name === "Hans").stalled, false);
+    s.handle(back, { type: "ready", index: 0 });
+    assert.equal(s.phase, "round");
+});
+
+test("the fresh wait for the first one back still ends after LOAD_MS", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    const token = last(host, "welcome").token;
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.disconnect(host);
+    s.disconnect(guest);
+    advance(LOAD_FIRST_MS + 1000);
+    s.tick();
+    s.join({}, { token });
+    advance(LOAD_MS - 1);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    advance(1);
+    s.tick();
+    assert.equal(s.phase, "round");
+});
