@@ -35,6 +35,7 @@ export default class Multiplayer {
         this.visible = Promise.resolve();
         this.nextTimer = null;
         this.startLoading = false;
+        this.fetchingGuesses = false;
     }
 
     init() {
@@ -127,14 +128,17 @@ export default class Multiplayer {
     }
 
     start() {
-        // spins on through the loading phase (renderStatus) until the first round starts
+        // spins on through the loading phase (renderStatus) until the first round starts; a lobby state that comes
+        // in while the guesses are still being fetched (someone joins) must not hand the button back
+        this.fetchingGuesses = true;
         this.setStartLoading(true);
         this.app.getGuess(this.state.settings.rounds)
             .then(guesses => this.send({ type: "start", guesses }))
             .catch(() => {
                 this.setStartLoading(false);
                 this.toast("error", "mp.errors.GUESSES");
-            });
+            })
+            .finally(() => { this.fetchingGuesses = false; });
     }
 
     /**
@@ -212,6 +216,9 @@ export default class Multiplayer {
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
         clearTimeout(this.nextTimer);
+        // the lock ends with the game: singleplayer never unlocks RESULTS itself
+        this.app.BUTTON_NEXT.prop("disabled", false);
+        this.app.BUTTON_RESULTS.prop("disabled", false);
         // no retries or held images beyond the game; a preload still waiting to start sees the new preloader and stops
         this.preloader.keep([]);
         this.preloader = new Preloader();
@@ -350,7 +357,7 @@ export default class Multiplayer {
         this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
         this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !host || !last, disabled: false });
         // the lobby stays on screen while the first round loads: the start went through, the settings are fixed
-        this.setStartLoading(loading);
+        this.setStartLoading(loading || this.fetchingGuesses);
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
@@ -588,6 +595,8 @@ export default class Multiplayer {
 
     onFinal(msg) {
         clearInterval(this.countdown);
+        // no prepare follows the last round, so its preloaded images (and their retries) would outlive the game
+        this.preloader.keep([]);
         this.renderRanking($("#mpFinalRanking"), msg.ranking, msg.winners);
         const me = msg.ranking.find(r => r.id === this.me);
         $("#scoreValue").text(me ? me.score : msg.ranking[0]?.score ?? 0);
@@ -604,7 +613,8 @@ export default class Multiplayer {
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
         $("#mpRanking li").each((_, li) => {
             const p = s.players.find(x => x.id === li.dataset.id);
-            if (p) $(li).find(".name").text(p.name + this.loadMark(s, p));
+            // in front of the name: the ranking cuts long names off with an ellipsis, which would hide a mark behind them
+            if (p) $(li).find(".name").text(`${this.loadMark(s, p).trim()} ${p.name}`.trim());
         });
     }
 
