@@ -140,9 +140,11 @@ export const squadMinimap = Map.extend({
                 if (OLDLAYER) OLDLAYER.remove();
                 this.spin(false);
                 resolve();
-                // a newer changeLayer (next round, another map) replaces this layer and so ends the retries
+                // a newer changeLayer (next round, another map) replaces this layer and so ends the retries; a
+                // multiplayer Find the Map round hides the map and its reveal loads the map again anyway
                 setTimeout(() => {
-                    if (this.activeLayer === layer && $("#map_ui").is(":visible")) this.changeLayer(failures + 1);
+                    const hidden = App.mp.active && $("#gameWrapper").hasClass("no-map");
+                    if (this.activeLayer === layer && $("#map_ui").is(":visible") && !hidden) this.changeLayer(failures + 1);
                 }, retryDelay(failures + 1));
             });
         });

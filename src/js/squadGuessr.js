@@ -348,6 +348,8 @@ export default class SquadGuessr {
         let failures = 0;
 
         clearTimeout(this.hintRetry);
+        // whoever still waits on the replaced hint (multiplayer preloading of the next round) must not hang forever
+        if (this.hintSettled) this.hintSettled();
         $hint.off("load error");
         $hint.hide();
         $wrapper.addClass("loading");
@@ -362,6 +364,7 @@ export default class SquadGuessr {
         }
 
         return new Promise((resolve) => {
+            this.hintSettled = resolve;
             $hint.on("load", () => {
                 $wrapper.removeClass("loading");
                 $hint.fadeIn(1200);

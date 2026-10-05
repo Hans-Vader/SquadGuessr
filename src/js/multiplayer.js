@@ -34,7 +34,8 @@ export default class Multiplayer {
         // the images of the round on screen, once they had their first try: preloading the next round waits for it
         this.visible = Promise.resolve();
         this.nextTimer = null;
-        this.fetchingGuesses = false;
+        // the guess request of a START click that is still running, null otherwise
+        this.guessFetch = null;
     }
 
     init() {
@@ -129,15 +130,19 @@ export default class Multiplayer {
     start() {
         // spins on through the loading phase (renderStatus) until the first round starts; a lobby state that comes
         // in while the guesses are still being fetched (someone joins) must not hand the button back
-        this.fetchingGuesses = true;
+        const fetching = this.app.getGuess(this.state.settings.rounds);
+        this.guessFetch = fetching;
         this.app.setButtonLoading($("#BUTTON_MP_START"), true);
-        this.app.getGuess(this.state.settings.rounds)
-            .then(guesses => this.send({ type: "start", guesses }))
+        // stop() forgets the request: guesses that arrive after leaving must not start a game in another session
+        const current = () => this.guessFetch === fetching;
+        fetching
+            .then(guesses => { if (current()) this.send({ type: "start", guesses }); })
             .catch(() => {
+                if (!current()) return;
                 this.app.setButtonLoading($("#BUTTON_MP_START"), false);
                 this.toast("error", "mp.errors.GUESSES");
             })
-            .finally(() => { this.fetchingGuesses = false; });
+            .finally(() => { if (current()) this.guessFetch = null; });
     }
 
     /**
@@ -206,6 +211,7 @@ export default class Multiplayer {
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
         clearTimeout(this.nextTimer);
+        this.guessFetch = null;
         // the lock ends with the game: singleplayer never unlocks RESULTS itself
         this.app.BUTTON_NEXT.prop("disabled", false);
         this.app.BUTTON_RESULTS.prop("disabled", false);
@@ -276,7 +282,7 @@ export default class Multiplayer {
 
     onError(code) {
         // a rejected start brings no new state, so the START spinner would stay
-        if (this.state?.phase === "lobby") this.app.setButtonLoading($("#BUTTON_MP_START"), false);
+        if (this.state?.phase === "lobby" && !this.guessFetch) this.app.setButtonLoading($("#BUTTON_MP_START"), false);
         if (code === "GAME_RUNNING") {
             // no toast: the entry form now explains it and offers to watch instead
             this.runningCode = this.hello?.code;
@@ -347,7 +353,7 @@ export default class Multiplayer {
         this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
         this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !host || !last, disabled: false });
         // the lobby stays on screen while the first round loads: the start went through, the settings are fixed
-        this.app.setButtonLoading($("#BUTTON_MP_START"), loading || this.fetchingGuesses);
+        this.app.setButtonLoading($("#BUTTON_MP_START"), loading || Boolean(this.guessFetch));
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
@@ -381,8 +387,10 @@ export default class Multiplayer {
      */
     onPrepare(msg) {
         const urls = [this.app.hintUrl(msg.url)];
-        // classic only: in Find the Map the map is the answer and never comes ahead (msg.map is null)
-        if (msg.map) urls.push(basemapUrl(findMap(msg.map)));
+        // classic only: in Find the Map the map is the answer and never comes ahead (msg.map is null). A map this
+        // (older, cached) build does not know is left out, so the hint still preloads and ready still goes out
+        const map = msg.map && findMap(msg.map);
+        if (map) urls.push(basemapUrl(map));
         // the round on screen keeps its images in the DOM, so only the announced ones need holding
         this.preloader.keep(urls);
         // the next round: low priority, and not before the images on screen had their first try
