@@ -64,6 +64,7 @@
         "showOnScreen": "Show on a big screen",
         "enterName": "Enter your name first",
         "you": "You",
+        "kick": "Remove {{name}}",
         "buttons": {
             "create": "CREATE SESSION",
             "join": "JOIN",
@@ -82,7 +83,8 @@
             "GUESSES": "Could not load guesses",
             "CODE": "Enter the 4-character code",
             "SERVER_BUSY": "Too many sessions right now, try again later",
-            "REPLACED": "You went on playing in another tab or on another device"
+            "REPLACED": "You went on playing in another tab or on another device",
+            "KICKED": "The host removed you from the session"
         }
     },
     "desc": "Find where the screenshot has been taken"

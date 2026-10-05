@@ -309,6 +309,33 @@ test("leaving the lobby frees the name and the slot", () => {
     assert.equal(s.join(again, { name: "Max" }), true);
 });
 
+test("the host can kick a player from the lobby: they are told, their old token stays out, name and slot are free", () => {
+    const { s, host, guest, last } = withGuest();
+    const { playerId, token } = last(guest, "welcome");
+    s.handle(host, { type: "kick", playerId });
+    assert.equal(last(guest, "error").code, "KICKED");
+    assert.deepEqual(last(host, "state").players.map(p => p.name), ["Hans"]);
+    // offline at the kick, they never got the message: their reconnect must not quietly undo it
+    const back = {};
+    assert.equal(s.join(back, { name: "Max", token }), false);
+    assert.equal(last(back, "error").code, "KICKED");
+    assert.equal(s.join({}, { name: "Max" }), true);
+});
+
+test("only the host kicks, never themselves, and only in the lobby", () => {
+    const { s, host, guest, last } = withGuest();
+    const hostId = last(host, "welcome").playerId;
+    const guestId = last(guest, "welcome").playerId;
+    s.handle(guest, { type: "kick", playerId: hostId });
+    assert.equal(last(guest, "error").code, "NOT_HOST");
+    s.handle(host, { type: "kick", playerId: hostId });
+    assert.equal(last(host, "error").code, "INVALID");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(host, { type: "kick", playerId: guestId });
+    assert.equal(last(host, "error").code, "INVALID");
+    assert.equal(s.players.size, 2);
+});
+
 test("leaving a running game keeps the player's score but marks them offline", () => {
     const { s, host, guest, last } = started();
     s.handle(guest, { type: "leave" });
