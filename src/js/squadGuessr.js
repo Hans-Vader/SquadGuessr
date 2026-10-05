@@ -1,4 +1,4 @@
-import { MAPS, initMapsProperties } from "./data/maps.js";
+import { MAPS, initMapsProperties, findMap } from "./data/maps.js";
 import { squadMinimap } from "./squadMinimap.js";
 import { loadLanguage } from "../i18n/i18n.js";
 import { Polyline, LatLngBounds } from "leaflet";
@@ -308,7 +308,7 @@ export default class SquadGuessr {
     }
 
     debugChangeMap(mapName) {
-        const map = MAPS.find(m => m.name.toLowerCase() === mapName.toLowerCase());
+        const map = findMap(mapName);
         if (!map) {
             console.debug(`Map "${mapName}" not found ❌`);
             console.debug("Available maps:");
@@ -323,7 +323,7 @@ export default class SquadGuessr {
     }
 
     setupMap() {
-        const map = MAPS.find(m => m.name.toLowerCase() === this.currentGuess.map.toLowerCase());
+        const map = findMap(this.currentGuess.map);
         this.minimap.clear();
         this.minimap.activeMap = map;
         return this.minimap.draw(true);
@@ -587,6 +587,9 @@ export default class SquadGuessr {
     }
 
     setButtonLoading(button, isLoading) {
+        // a second call with the same value must not store the spinner as the button's text
+        if (Boolean(button.data("loading")) === isLoading) return;
+        button.data("loading", isLoading);
         if (isLoading) {
             button.data("original-text", button.html());
             button.prop("disabled", true);

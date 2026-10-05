@@ -4,7 +4,7 @@ import QRCode from "qrcode";
 import { guessMarker } from "./guessMarker.js";
 import { updateOffset } from "./clock.js";
 import Preloader from "./preloader.js";
-import { MAPS, basemapUrl } from "./data/maps.js";
+import { findMap, basemapUrl } from "./data/maps.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 // NEXT / RESULTS stay locked until the server answers, or at most this long (e.g. the connection just dropped)
@@ -34,7 +34,6 @@ export default class Multiplayer {
         // the images of the round on screen, once they had their first try: preloading the next round waits for it
         this.visible = Promise.resolve();
         this.nextTimer = null;
-        this.startLoading = false;
         this.fetchingGuesses = false;
     }
 
@@ -131,23 +130,14 @@ export default class Multiplayer {
         // spins on through the loading phase (renderStatus) until the first round starts; a lobby state that comes
         // in while the guesses are still being fetched (someone joins) must not hand the button back
         this.fetchingGuesses = true;
-        this.setStartLoading(true);
+        this.app.setButtonLoading($("#BUTTON_MP_START"), true);
         this.app.getGuess(this.state.settings.rounds)
             .then(guesses => this.send({ type: "start", guesses }))
             .catch(() => {
-                this.setStartLoading(false);
+                this.app.setButtonLoading($("#BUTTON_MP_START"), false);
                 this.toast("error", "mp.errors.GUESSES");
             })
             .finally(() => { this.fetchingGuesses = false; });
-    }
-
-    /**
-     * setButtonLoading stores the button's content on every call, so a second "on" would keep the spinner for good
-     */
-    setStartLoading(on) {
-        if (on === this.startLoading) return;
-        this.startLoading = on;
-        this.app.setButtonLoading($("#BUTTON_MP_START"), on);
     }
 
     /**
@@ -286,7 +276,7 @@ export default class Multiplayer {
 
     onError(code) {
         // a rejected start brings no new state, so the START spinner would stay
-        if (this.state?.phase === "lobby") this.setStartLoading(false);
+        if (this.state?.phase === "lobby") this.app.setButtonLoading($("#BUTTON_MP_START"), false);
         if (code === "GAME_RUNNING") {
             // no toast: the entry form now explains it and offers to watch instead
             this.runningCode = this.hello?.code;
@@ -357,7 +347,7 @@ export default class Multiplayer {
         this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
         this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !host || !last, disabled: false });
         // the lobby stays on screen while the first round loads: the start went through, the settings are fixed
-        this.setStartLoading(loading || this.fetchingGuesses);
+        this.app.setButtonLoading($("#BUTTON_MP_START"), loading || this.fetchingGuesses);
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
@@ -392,7 +382,7 @@ export default class Multiplayer {
     onPrepare(msg) {
         const urls = [this.app.hintUrl(msg.url)];
         // classic only: in Find the Map the map is the answer and never comes ahead (msg.map is null)
-        if (msg.map) urls.push(basemapUrl(MAPS.find(m => m.name.toLowerCase() === msg.map.toLowerCase())));
+        if (msg.map) urls.push(basemapUrl(findMap(msg.map)));
         // the round on screen keeps its images in the DOM, so only the announced ones need holding
         this.preloader.keep(urls);
         // the next round: low priority, and not before the images on screen had their first try
@@ -605,7 +595,7 @@ export default class Multiplayer {
 
     renderPlayers(s) {
         const items = s.players.map(p => $("<li>")
-            .text(`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}${this.loadMark(s, p)}`)
+            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
             .toggleClass("me", p.id === this.me));
         $("#mpPlayers").empty().append(items);
@@ -614,7 +604,7 @@ export default class Multiplayer {
         $("#mpRanking li").each((_, li) => {
             const p = s.players.find(x => x.id === li.dataset.id);
             // in front of the name: the ranking cuts long names off with an ellipsis, which would hide a mark behind them
-            if (p) $(li).find(".name").text(`${this.loadMark(s, p).trim()} ${p.name}`.trim());
+            if (p) $(li).find(".name").text([this.loadMark(s, p), p.name].filter(Boolean).join(" "));
         });
     }
 
@@ -623,8 +613,8 @@ export default class Multiplayer {
      */
     loadMark(s, p) {
         if (s.phase !== "loading" || !p.connected) return "";
-        if (p.stalled) return " 💤";
-        return p.ready ? "" : " ⏳";
+        if (p.stalled) return "💤";
+        return p.ready ? "" : "⏳";
     }
 
     renderRanking($list, rows, winners = []) {

@@ -566,6 +566,13 @@ if (typeof process !== "undefined" && process.argv?.[2] === "mapinfo") {
 }
 
 /**
+ * The map called `name` (any case), or undefined if this build does not know it
+ */
+export function findMap(name) {
+    return MAPS.find(m => m.name.toLowerCase() === String(name).toLowerCase());
+}
+
+/**
  * The map image Leaflet shows; the multiplayer preloads exactly this URL
  */
 export function basemapUrl(map) {
