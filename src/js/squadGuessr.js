@@ -8,6 +8,7 @@ import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
 import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
+import { RETRY_MS } from "./preloader.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -325,42 +326,56 @@ export default class SquadGuessr {
         const map = MAPS.find(m => m.name.toLowerCase() === this.currentGuess.map.toLowerCase());
         this.minimap.clear();
         this.minimap.activeMap = map;
-        this.minimap.draw(true);
+        return this.minimap.draw(true);
     }
 
+    /**
+     * The hint image's URL; the multiplayer preloads exactly this one
+     */
+    hintUrl(url) {
+        return `/api/v2${url}`;
+    }
+
+    /**
+     * Shows the current guess's hint image; resolves after the first attempt (loaded or failed), so a timer waiting
+     * for it always starts. A failed image is retried every second while this guess is still on the game screen
+     */
     setupHint() {
+        const $hint = $("#hint");
+        const $wrapper = $("#hint-wrapper");
+        const guess = this.currentGuess;
+        const url = this.hintUrl(guess.url);
+
+        clearTimeout(this.hintRetry);
+        $hint.off("load error");
+        $hint.hide();
+        $wrapper.addClass("loading");
+        $hint.attr("src", "");
+        $hint.attr("src", url);
+
+        if (guess.submitter) {
+            $("#submitter").text(i18next.t("game.hintBy", { ns: "common" }) + " " + guess.submitter);
+        }
+        else {
+            $("#submitter").text("");
+        }
 
         return new Promise((resolve) => {
-            const $hint = $("#hint");
-            $hint.off("load error");
-            $hint.hide();
-            $hint.attr("src", "");
-            $hint.attr("src", `/api/v2${this.currentGuess.url}`);
-
-            if (this.currentGuess.submitter) {
-                $("#submitter").text(i18next.t("game.hintBy", { ns: "common" }) + " " + this.currentGuess.submitter);
-            }
-            else {
-                $("#submitter").text("");
-            }
-           
-
-            // // Check if already loaded (cached)
-            // if ($hint[0].complete && $hint[0].naturalHeight !== 0) {
-            //     resolve();
-            // } else {
-
             $hint.on("load", () => {
+                $wrapper.removeClass("loading");
                 $hint.fadeIn(1200);
                 resolve();
             });
 
-            //     $hint.on("error", (err) => {
-            //         console.error("Failed to load hint image", err);
-            //         resolve(); // Resolve anyway to not block the timer
-            //     });
-            // }
-
+            $hint.on("error", () => {
+                resolve();
+                this.hintRetry = setTimeout(() => {
+                    // by URL: the multiplayer reveal swaps currentGuess for a new object of the same round
+                    if (this.currentGuess?.url !== guess.url || !$("#map_ui").is(":visible")) return;
+                    $hint.attr("src", "");
+                    $hint.attr("src", url);
+                }, RETRY_MS);
+            });
         });
     }
 
