@@ -13,7 +13,7 @@ export const LOAD_MS = 5 * 1000;
 export const COUNTDOWN_READY_MS = 5 * 1000;
 export const COUNTDOWN_FORCED_MS = 15 * 1000;
 
-const HOST_ACTIONS = ["settings", "start", "endRound", "next", "lobby"];
+const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "lobby"];
 
 /**
  * One multiplayer session: lobby → loading → round → reveal → loading → … → final
@@ -107,6 +107,7 @@ export class Session {
         switch (msg.type) {
         case "settings": return this.updateSettings(conn, msg.settings);
         case "start": return this.start(conn, msg.guesses);
+        case "cancelStart": return this.cancelStart(conn);
         case "endRound": return this.phase === "round" && this.deadline === null ? this.endRound() : this.error(conn, "INVALID");
         case "next": return this.next(conn);
         case "lobby": return this.toLobby(conn);
@@ -128,6 +129,21 @@ export class Session {
         this.round = 0;
         this.startsAt = this.now() + (this.allReady() ? COUNTDOWN_READY_MS : COUNTDOWN_FORCED_MS);
         this.load();
+    }
+
+    /**
+     * Calls a start off as long as round 1 has not begun: back to the lobby, who was ready stays ready
+     */
+    cancelStart(conn) {
+        if (this.phase !== "loading" || this.round !== 0) return this.error(conn, "INVALID");
+        this.phase = "lobby";
+        this.guesses = [];
+        this.startsAt = null;
+        this.loadUntil = null;
+        // like leaving the lobby: who left during the countdown is gone, a reload in progress keeps its place
+        this.players.forEach(p => { if (!this.isPresent(p)) this.players.delete(p.id); });
+        this.resetScores();
+        this.broadcastState();
     }
 
     /**

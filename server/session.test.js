@@ -731,3 +731,39 @@ test("after a game nobody is ready any more, and the next game starts from the l
     s.handle(host, { type: "lobby" });
     assert.equal(last(guest, "state").players.find(p => p.name === "Max").lobbyReady, false);
 });
+
+test("the host can call the start off until round 1 runs: back to the lobby, ready marks stay, who left is gone", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    const ida = {};
+    s.join(ida, { name: "Ida" });
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    s.handle(ida, { type: "lobbyReady", ready: true });
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(guest, { type: "cancelStart" });
+    assert.equal(last(guest, "error").code, "NOT_HOST");
+    s.handle(ida, { type: "leave" });
+    // the countdown is over, but a slow device is still waited for: that can be called off too
+    s.handle(host, { type: "ready", index: 0 });
+    advance(COUNTDOWN_READY_MS);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    s.handle(host, { type: "cancelStart" });
+    const state = last(guest, "state");
+    assert.deepEqual([state.phase, state.startsAt], ["lobby", null]);
+    assert.deepEqual(state.players.map(p => [p.name, p.lobbyReady]), [["Hans", false], ["Max", true]]);
+    assert.deepEqual([...s.players.values()].map(p => [p.ready, p.stalled]), [[-1, false], [-1, false]]);
+    // nothing keeps running in the lobby
+    advance(LOAD_FIRST_MS);
+    s.tick();
+    assert.equal(s.phase, "lobby");
+    // a new start counts down again; once round 1 runs, there is nothing left to call off
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.deepEqual([s.phase, last(guest, "prepare").index], ["loading", 0]);
+    readyAll(s, 0);
+    advance(COUNTDOWN_READY_MS);
+    s.tick();
+    assert.equal(s.phase, "round");
+    s.handle(host, { type: "cancelStart" });
+    assert.equal(last(host, "error").code, "INVALID");
+    assert.equal(s.phase, "round");
+});
