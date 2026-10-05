@@ -61,8 +61,11 @@
         "waitingForPlayers": "等待其他玩家中 ({{answered}}/{{total}})",
         "gameRunning": "游戏已经开始，你仍可以观看。",
         "reconnecting": "正在重新连接...",
-        "showOnScreen": "在大屏幕上显示",
         "enterName": "请先输入你的名字",
+        "copyJoinLink": "复制加入链接",
+        "copyWatchLink": "复制观看链接",
+        "joinLinkCopied": "加入链接已复制",
+        "watchLinkCopied": "观看链接已复制",
         "you": "你",
         "buttons": {
             "create": "创建房间",
