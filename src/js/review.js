@@ -49,24 +49,27 @@ export default class Review {
         this.dirty = false;
         // while true the decisions are frozen: the export works from the accepted list taken at its start
         this.exporting = false;
+        // "name|size" of every ZIP in the queue: the same ZIP dropped again is skipped as a whole
+        this.loaded = new Set();
     }
 
     init() {
         const $view = $("#review");
 
         $("#BUTTON_REVIEW_GO").on("click", () => this.open());
-        $("#BUTTON_REVIEW_BACK").on("click", () => {
-            history.replaceState({}, "", "/");
-            this.app.switchUI("menu");
-        });
+        $("#BUTTON_REVIEW_BACK").on("click", () => this.app.toMenu());
         $("#reviewDrop, #BUTTON_REVIEW_ADD").on("click", () => $("#reviewFiles").trigger("click"));
         $("#reviewFiles").on("change", (e) => {
             this.addFiles(Array.from(e.target.files));
             // choosing the same file again must fire change again
             e.target.value = "";
         });
-        $view.on("dragover", (e) => e.preventDefault());
-        $view.on("drop", (e) => {
+        // a file dropped anywhere on the page (header and footer included) would otherwise make the browser leave it
+        $(document).on("dragover", (e) => {
+            if ($view.is(":visible")) e.preventDefault();
+        });
+        $(document).on("drop", (e) => {
+            if (!$view.is(":visible")) return;
             e.preventDefault();
             this.addFiles(Array.from(e.originalEvent.dataTransfer.files));
         });
@@ -78,6 +81,8 @@ export default class Review {
         document.addEventListener("keydown", (e) => {
             if (!$view.is(":visible") || !this.items.length || e.ctrlKey || e.metaKey || e.altKey) return;
             const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+            // holding A or D must not decide a whole run of guesses nobody looked at; arrows may repeat to browse
+            if (e.repeat && (key === "a" || key === "d")) return;
             const action = {
                 a: () => this.decide("accepted"),
                 d: () => this.decide("rejected"),
@@ -88,12 +93,7 @@ export default class Review {
             e.preventDefault();
             action();
         });
-        window.addEventListener("beforeunload", (e) => {
-            if (!this.dirty) return;
-            e.preventDefault();
-            // older browsers only ask when returnValue is set
-            e.returnValue = true;
-        });
+        this.app.warnOnLeave(() => this.dirty);
         // the EXPORT count is not covered by data-i18n
         i18next.on("languageChanged", () => this.renderButtons());
         this.renderButtons();
@@ -120,6 +120,11 @@ export default class Review {
         const problems = [];
         let skipped = 0;
         for (const file of files) {
+            const id = `${file.name}|${file.size}`;
+            if (this.loaded.has(id)) {
+                problems.push(`${file.name}: already loaded`);
+                continue;
+            }
             let list;
             try {
                 list = unpackGuesses(new Uint8Array(await file.arrayBuffer()));
@@ -127,6 +132,7 @@ export default class Review {
                 problems.push(`${file.name}: ${err.message}`);
                 continue;
             }
+            this.loaded.add(id);
             list.forEach(g => {
                 // the very same guess (the same ZIP dropped twice); file names alone repeat across submitters
                 if (g.entry && this.items.some(i => i.entry && JSON.stringify(i.entry) === JSON.stringify(g.entry))) {
@@ -224,6 +230,7 @@ export default class Review {
         if (this.dirty && !confirm(i18next.t("review.confirmClear", { ns: "common" }))) return;
         this.items.forEach(item => { if (item.src) URL.revokeObjectURL(item.src); });
         this.items = [];
+        this.loaded.clear();
         this.index = 0;
         this.dirty = false;
         this.minimap?.markersGroup.clearLayers();
@@ -237,8 +244,11 @@ export default class Review {
     decide(status) {
         const item = this.items[this.index];
         if (!item || item.error || this.exporting) return;
-        item.status = status;
-        this.dirty = true;
+        // the same decision again is no change: it must not bring back the leave warning after an export
+        if (item.status !== status) {
+            item.status = status;
+            this.dirty = true;
+        }
         this.show(this.nextOpen() ?? this.index);
     }
 

@@ -121,7 +121,7 @@ img/guesses/<id>.webp
 ### Bild
 
 - Strg+V fügt ein Bild ein, solange die Ansicht sichtbar ist. Das Tool reagiert nur, wenn `clipboardData.files` eine Datei mit `image/*`-Typ enthält. Text landet weiter normal im Namensfeld.
-- Ein Klick in den leeren Bildbereich öffnet die Dateiauswahl (`<input type="file" accept="image/*">`). Drag & Drop einer Bilddatei auf den Bildbereich geht auch.
+- Ein Klick in den leeren Bildbereich öffnet die Dateiauswahl (`<input type="file" accept="image/*">`). Drag & Drop einer Bilddatei geht auch, und zwar überall auf der Seite (auch auf Kopf- und Fußzeile), solange die Ansicht offen ist. Sonst würde der Browser die Datei öffnen und die App verlassen.
 - Dekodiert wird mit `createImageBitmap(file)`. Schlägt das fehl, kommt der Toast „This file is not an image“.
 - Ist die kürzere Seite kleiner als 900 px, kommt der Toast „Image too small: at least 900×900 px needed (yours: W×H)“, und das Bild wird verworfen.
 - Ein neues Bild ersetzt das bisherige. Der Marker bleibt stehen.
@@ -146,12 +146,13 @@ img/guesses/<id>.webp
 - Ist `blob` leer oder `blob.type` nicht `image/webp` (Safari), kommt der Toast „Your browser cannot create WebP images. Please use Chrome, Edge or Firefox“, und nichts wird hinzugefügt.
 - Der Eintrag kommt in die Liste:
   - Vorschaubild, Map-Name und ✕ zum Entfernen.
-  - Danach werden Bild und Marker zurückgesetzt. Map und Name bleiben.
+  - Danach werden Bild und Marker zurückgesetzt. Map und Name bleiben. Wurde während des Erzeugens schon ein neues Bild eingefügt, bleibt dieses stehen; nur der Marker wird zurückgesetzt.
   - Im Speicher bleiben der WebP-Blob, der Eintrag, das Originalbild und das gewählte Quadrat, damit sich der Guess später korrigieren lässt.
 
 ### Korrigieren
 
 - Ein Klick auf Vorschaubild oder Map-Namen eines Guess in der Liste lädt ihn zurück in den Editor: Map, Marker an der gespeicherten Stelle, Originalbild mit dem damals gewählten Quadrat. Der Eintrag bekommt einen blauen Rand.
+- Ist dieselbe Map schon geladen, bleibt die Karte stehen (kein Neuladen). Die Ansicht zentriert mit Zoom 4 auf den Marker des Guess.
 - Dann lassen sich Marker, Map, Quadrat und Bild ändern wie beim Erfassen. Ein Map-Wechsel entfernt den Marker.
 - **ADD** heißt dann **SAVE** und überschreibt den Eintrag an seiner Stelle in der Liste. `url` (also die Bild-ID) bleibt gleich.
 - **CANCEL** erscheint nur während einer Korrektur. Es verwirft sie und leert den Editor.
@@ -182,9 +183,10 @@ img/guesses/<id>.webp
 ### ZIPs laden
 
 - Ist die Warteschlange leer, füllt eine Ablagefläche („Drop ZIP files here or click to choose“) die Ansicht.
-- Danach kann man weitere ZIPs auf die ganze Ansicht ziehen oder über **ADD ZIP** wählen. Die Dateiauswahl erlaubt mehrere Dateien (`multiple`, `accept=".zip"`).
+- Danach kann man weitere ZIPs irgendwo auf die Seite ziehen (auch auf Kopf- und Fußzeile) oder über **ADD ZIP** wählen. Die Dateiauswahl erlaubt mehrere Dateien (`multiple`, `accept=".zip"`).
 - Alle Guesses landen in einer Warteschlange, in der Reihenfolge der Dateien und der Einträge.
 - Eine Datei, die sich nicht lesen lässt, meldet ein Toast mit dem Dateinamen und dem Grund. Gemeint sind: keine ZIP, keine oder mehrere `.json`-Dateien, `.json`-Datei zu groß, kein JSON-Array. Die übrigen Dateien laden trotzdem.
+- Eine ZIP mit gleichem Namen und gleicher Größe wie eine bereits geladene wird als Ganzes übersprungen („already loaded“), damit ihre ungültigen Einträge nicht doppelt erscheinen. CLEAR vergisst diese Liste.
 - Ein Guess, der in allen Feldern schon in der Warteschlange steht (dieselbe ZIP zweimal abgelegt), wird übersprungen. Die Zahl der übersprungenen Guesses zeigt ein Toast. Gleiche Dateinamen bei verschiedenen Guesses (etwa zwei Einreicher mit `000001.png`) sind erlaubt, weil der Export ohnehin neu benennt.
 
 ### Sichten
@@ -192,7 +194,7 @@ img/guesses/<id>.webp
 - Links das Bild als mittiges Quadrat (`object-fit: cover`), also genau der Ausschnitt, den der Export behält. Rechts die Minimap.
 - Die Karte lädt die Map des Guesses, setzt einen festen Marker auf `lat × gameToMapScale`, `lng × gameToMapScale` und zentriert mit Zoom 4 darauf.
 - Darüber stehen Map, Einreicher (oder „—“), ZIP-Name und der Fortschritt „3 / 23“.
-- **ACCEPT** (`A`) und **REJECT** (`D`) entscheiden. Nach einer Entscheidung springt die Ansicht zum nächsten offenen Guess hinter dem aktuellen, sonst zum ersten offenen. Gibt es keinen offenen mehr, bleibt sie stehen.
+- **ACCEPT** (`A`) und **REJECT** (`D`) entscheiden. Gedrückt gehaltenes A oder D zählt nur einmal (Tastenwiederholungen werden ignoriert); die Pfeiltasten dürfen wiederholen. Dieselbe Entscheidung noch einmal ist keine Änderung und löst keine Verlassen-Warnung aus. Nach einer Entscheidung springt die Ansicht zum nächsten offenen Guess hinter dem aktuellen, sonst zum ersten offenen. Gibt es keinen offenen mehr, bleibt sie stehen.
 - `←`/`→` blättern.
 - Unten zeigt eine Leiste aus Vorschaubildern den Status jedes Guess: offen, angenommen (grüner Rand), abgelehnt (roter Rand, blass), ungültig (sehr blass). Ein Klick springt dorthin. Jede Entscheidung lässt sich jederzeit ändern.
 
@@ -224,7 +226,9 @@ img/guesses/<id>.webp
 Die ZIPs kommen von Fremden. Sie sind eine Vertrauensgrenze.
 
 1. **Entpacken:**
-   - `unzipSync(bytes, { filter })` entpackt nur `.json`-Dateien beliebigen Namens mit `originalSize` ≤ 1 MB und Dateien unter `img/guesses/` mit der Endung `.webp`, `.png`, `.jpg` oder `.jpeg` (Groß- und Kleinschreibung egal) und `originalSize` ≤ 32 MB, damit auch volle PNG-Screenshots passen.
+   - Zwei Durchgänge mit `unzipSync(bytes, { filter })`. Der erste entpackt nur die `.json`-Datei (beliebiger Name, ≤ 1 MB) und notiert dabei alle Einträge der ZIP. Der zweite entpackt nur die Bilder, auf die ein Guess verweist: unter `img/guesses/`, Endung `.webp`, `.png`, `.jpg` oder `.jpeg` (Groß- und Kleinschreibung egal), ≤ 32 MB, damit auch volle PNG-Screenshots passen.
+   - Geprüft wird jeweils die größere von angegebener und tatsächlicher Größe. Ein unkomprimiert gespeicherter Eintrag mit gelogener Größenangabe kommt so nicht durch.
+   - Alle verwendeten Bilder einer ZIP zusammen dürfen höchstens 512 MB groß sein, sonst ist die Datei unbrauchbar („too large“). So kann eine präparierte ZIP den Review-Tab nicht mit riesigen Speicheranforderungen abstürzen lassen.
    - Beides darf zusätzlich in genau einem Ordner liegen (`squadguessr-Dan-2026-10-06/guesses.json`). So sieht eine ZIP aus, deren entpackter Ordner neu komprimiert wurde. Die Bilder werden neben der `.json`-Datei gesucht.
    - Was macOS beim Komprimieren hinzufügt (`__MACOSX/…`, Dateien mit `._` am Namensanfang), wird nie entpackt und zählt nicht als `.json`-Datei.
    - Alles andere wird gar nicht erst entpackt.
@@ -238,7 +242,7 @@ Die ZIPs kommen von Fremden. Sie sind eine Vertrauensgrenze.
    - Unter `url` ohne führenden `/` muss ein entpacktes Bild liegen.
    - Der Grund für „ungültig“ ist der erste verletzte Punkt: `invalid data` (`validGuess` schlägt fehl), `invalid mode` oder `image missing`.
    - Das Bild eines ungültigen Eintrags wird nur über einen eigenen Schlüssel der entpackten Dateien gesucht (`Object.hasOwn`), damit eine `url` wie `/__proto__` nicht `Object.prototype` liefert.
-4. **Neu aufbauen:** Ein gültiger Eintrag wird aus genau `map`, `mode`, `url`, `lat`, `lng` und gegebenenfalls `submitter` neu zusammengesetzt. Fremde Felder kommen nie in den Export.
+4. **Neu aufbauen:** Ein gültiger Eintrag wird aus genau `map`, `mode`, `url`, `lat`, `lng` und gegebenenfalls `submitter` neu zusammengesetzt. Fremde Felder kommen nie in den Export. `map` wird in der Schreibweise der Map-Liste übernommen (aus „tallil“ wird „Tallil“, aus „ALBASRAH“ „AlBasrah“).
 
 ### Anzeige
 
@@ -275,6 +279,9 @@ Das Dockerfile bleibt unverändert. Der Build kopiert ohnehin das ganze Repo, un
 - Ungültig mit Grund werden: unbekannte Map, `lat` als `NaN` bzw. `null` nach JSON, Name über 40 Zeichen, `mode: "medium"`, fehlendes Bild, Eintrag ist kein Objekt.
 - Fremde Felder fehlen nach dem Entpacken.
 - Andere Dateien in der ZIP werden ignoriert, auch `.gif`. Ein Bild über 32 MB gilt als fehlend.
+- Bilder, auf die kein Guess verweist, werden nie entpackt (ein kaputtes unbenutztes Bild stört nicht).
+- Ein gespeicherter Eintrag mit zu klein angegebener Größe gilt als fehlend; mehr als 512 MB verwendete Bilder ergeben „too large“.
+- Map-Namen werden in die Schreibweise der Map-Liste gebracht.
 - PNG- und JPEG-Bilder (auch `.JPG`) werden gelesen.
 - `packGuesses` lehnt zwei Einträge mit demselben Bildpfad ab.
 - `isWebp` erkennt den RIFF/WEBP-Kopf.

@@ -7,6 +7,8 @@ import { IMAGE_SIZE, centredSquare, squareWebp } from "./webp.js";
 
 // share of the long image side the square moves per arrow key press
 const KEY_STEP = 0.02;
+// zoom when a guess from the list is opened: close enough to see where its marker sits
+const EDIT_ZOOM = 4;
 
 /**
  * "Submit a guess" view (?submit): paste a screenshot, choose its square, pin where it was taken
@@ -39,10 +41,7 @@ export default class Submit {
         $("#BUTTON_SUBMIT").on("click", () => $("#submitChoice").prop("hidden", (i, hidden) => !hidden));
         $("#submitChoice button").on("click", () => $("#submitChoice").prop("hidden", true));
         $("#BUTTON_SUBMIT_GO").on("click", () => this.open());
-        $("#BUTTON_SUBMIT_BACK").on("click", () => {
-            history.replaceState({}, "", "/");
-            this.app.switchUI("menu");
-        });
+        $("#BUTTON_SUBMIT_BACK").on("click", () => this.app.toMenu());
         $("#submitMapSelect").on("change", (e) => this.selectMap(e.target.value));
         $("#BUTTON_SUBMIT_ADD").on("click", () => this.add());
         $("#BUTTON_SUBMIT_CANCEL").on("click", () => this.cancelEdit());
@@ -61,12 +60,7 @@ export default class Submit {
             e.preventDefault();
             this.loadImage(file);
         });
-        window.addEventListener("beforeunload", (e) => {
-            if (!this.dirty || !this.guesses.length) return;
-            e.preventDefault();
-            // older browsers only ask when returnValue is set
-            e.returnValue = true;
-        });
+        this.app.warnOnLeave(() => this.dirty && this.guesses.length > 0);
         // labels written here (DOWNLOAD count, ✕) are not covered by data-i18n
         i18next.on("languageChanged", () => this.renderList());
         this.updateButtons();
@@ -101,9 +95,12 @@ export default class Submit {
                 this.clearImage();
                 this.updateButtons();
             });
-        // a file dropped anywhere on the view would otherwise make the browser leave the page to show it
-        $("#submit").on("dragover", (e) => e.preventDefault());
-        $("#submit").on("drop", (e) => {
+        // a file dropped anywhere on the page (header and footer included) would otherwise make the browser leave it
+        $(document).on("dragover", (e) => {
+            if ($("#submit").is(":visible")) e.preventDefault();
+        });
+        $(document).on("drop", (e) => {
+            if (!$("#submit").is(":visible")) return;
             e.preventDefault();
             const file = Array.from(e.originalEvent.dataTransfer.files).find(f => f.type.startsWith("image/"));
             if (file) this.loadImage(file);
@@ -221,6 +218,8 @@ export default class Submit {
         const entry = { map: this.map.name, mode: "easy", url, lat: lat * scale, lng: lng * scale };
         const file = this.file;
         const crop = { ...this.crop };
+        // an image pasted while the webp is encoded starts a newer load: it stays in the editor afterwards
+        const load = this.loads;
         let blob;
         try {
             blob = await squareWebp(this.bitmap, this.crop);
@@ -240,7 +239,7 @@ export default class Submit {
             this.editing = null;
         }
         this.dirty = true;
-        this.clearImage();
+        if (this.loads === load) this.clearImage();
         this.marker?.remove();
         this.marker = null;
         this.renderList();
@@ -255,9 +254,17 @@ export default class Submit {
         const g = this.guesses[index];
         this.editing = index;
         $("#submitMapSelect").val(g.entry.map);
-        this.selectMap(g.entry.map);
+        // the map already shown stays: no reload of the basemap
+        if (this.map?.name === g.entry.map) {
+            this.marker?.remove();
+            this.marker = null;
+        } else {
+            this.selectMap(g.entry.map);
+        }
         const scale = this.minimap.gameToMapScale;
-        this.placeMarker({ lat: g.entry.lat * scale, lng: g.entry.lng * scale });
+        const latlng = { lat: g.entry.lat * scale, lng: g.entry.lng * scale };
+        this.placeMarker(latlng);
+        this.minimap.setView(latlng, EDIT_ZOOM);
         this.renderList();
         await this.loadImage(g.file);
         // another guess (or image) may have been chosen while this one was decoding

@@ -158,9 +158,28 @@ export default class SquadGuessr {
         this.MAIN_LOGO.on("click", () => {
             this.stopTimer();
             if (this.mp.active) return this.mp.leave();
-            // coming from ?submit or ?review: a reload must land on the menu too
-            history.replaceState({}, "", "/");
-            this.switchUI("menu");
+            this.toMenu();
+        });
+    }
+
+    /**
+     * Back to the menu from any view; the URL loses ?submit, ?review, ?join or ?watch, so a reload lands on the menu too
+     */
+    toMenu() {
+        history.replaceState({}, "", "/");
+        this.switchUI("menu");
+    }
+
+    /**
+     * Makes the browser ask before the page is left while isUnsaved() is true
+     * @param {function(): boolean} isUnsaved
+     */
+    warnOnLeave(isUnsaved) {
+        window.addEventListener("beforeunload", (e) => {
+            if (!isUnsaved()) return;
+            e.preventDefault();
+            // older browsers only ask when returnValue is set
+            e.returnValue = true;
         });
     }
 
