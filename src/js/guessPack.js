@@ -5,7 +5,9 @@ const ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 const MODES = ["easy", "hard"];
 const MAX_JSON = 1024 * 1024;
 const MAX_IMAGE = 2 * 1024 * 1024;
-const IMAGE_PATH = /^img\/guesses\/[^/]+\.webp$/;
+// compressing the unpacked folder again puts everything one level deeper ("squadguessr-Dan-2026-10-06/guesses.json")
+const JSON_PATH = /^(?:[^/]+\/)?guesses\.json$/;
+const IMAGE_PATH = /^(?:[^/]+\/)?img\/guesses\/[^/]+\.webp$/;
 
 /**
  * Random image name like the existing ones ("PTWxNN2RRl9vC8G")
@@ -48,23 +50,27 @@ export function unpackGuesses(bytes) {
     let files;
     try {
         files = unzipSync(bytes, {
-            filter: f => (f.name === "guesses.json" && f.originalSize <= MAX_JSON)
+            filter: f => (JSON_PATH.test(f.name) && f.originalSize <= MAX_JSON)
                 || (IMAGE_PATH.test(f.name) && f.originalSize <= MAX_IMAGE),
         });
     } catch {
         throw new Error("not a ZIP file");
     }
-    if (!files["guesses.json"]) throw new Error("guesses.json missing or too large");
+    // the shortest path wins, so a guesses.json at the top level beats one in a folder
+    const jsonPath = Object.keys(files).filter(name => JSON_PATH.test(name)).sort((a, b) => a.length - b.length)[0];
+    if (!jsonPath) throw new Error("guesses.json missing or too large");
+    // images are looked up next to the guesses.json that was read
+    const dir = jsonPath.slice(0, -"guesses.json".length);
     let list;
     try {
-        list = JSON.parse(strFromU8(files["guesses.json"]));
+        list = JSON.parse(strFromU8(files[jsonPath]));
     } catch {
         throw new Error("guesses.json is not valid JSON");
     }
     if (!Array.isArray(list)) throw new Error("guesses.json is not a list");
 
     return list.map(g => {
-        const path = typeof g?.url === "string" ? g.url.slice(1) : "";
+        const path = typeof g?.url === "string" ? dir + g.url.slice(1) : "";
         // own keys only: a url like "/__proto__" must not find Object.prototype
         const image = Object.hasOwn(files, path) ? files[path] : null;
         let error = null;

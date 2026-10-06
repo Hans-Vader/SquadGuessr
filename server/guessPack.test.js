@@ -92,3 +92,14 @@ test("zipFileName keeps safe characters and falls back to anonymous", () => {
     assert.equal(zipFileName("测试", day), "squadguessr-anonymous-2026-10-06.zip");
     assert.equal(zipFileName("a_b-c", new Date(2027, 0, 9)), "squadguessr-a_b-c-2027-01-09.zip");
 });
+
+test("unpackGuesses reads a ZIP whose files sit in one folder, as when the folder was compressed again", () => {
+    const dir = "squadguessr-Dan-2026-10-06/";
+    const bytes = zipSync({
+        [`${dir}guesses.json`]: strToU8(JSON.stringify([entry()])),
+        [`${dir}${URL_A.slice(1)}`]: IMG,
+        // macOS adds these resource forks next to the real files
+        [`__MACOSX/${dir}._guesses.json`]: IMG,
+    }, { level: 6 });
+    assert.deepEqual(unpackGuesses(bytes), [{ entry: entry(), image: IMG, error: null }]);
+});
