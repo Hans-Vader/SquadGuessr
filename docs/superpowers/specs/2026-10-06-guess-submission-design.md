@@ -125,6 +125,7 @@ img/guesses/<id>.webp
 - Dekodiert wird mit `createImageBitmap(file)`. Schlägt das fehl, kommt der Toast „This file is not an image“.
 - Ist die kürzere Seite kleiner als 900 px, kommt der Toast „Image too small: at least 900×900 px needed (yours: W×H)“, und das Bild wird verworfen.
 - Ein neues Bild ersetzt das bisherige. Der Marker bleibt stehen.
+- Solange ein Bild geladen ist, entfernt ein runder **✕**-Button oben rechts im Bildbereich („Remove image“) das Bild. Danach öffnet ein Klick auf die Fläche wieder die Dateiauswahl. Map und Marker bleiben, ADD ist ausgegraut, bis wieder ein Bild da ist. Der Button fängt `pointerdown` und `click` ab, damit weder das Ziehen des Quadrats startet noch die Dateiauswahl aufgeht.
 
 ### Quadrat
 

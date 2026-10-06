@@ -63,6 +63,7 @@
 }
 
 #submitImage {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -71,6 +72,23 @@
     cursor: pointer;
     &:focus-visible {
         outline: 2px solid variables.$mainColor;
+    }
+    // inside #submitImage so it beats "#submit button"; only shown while an image is loaded, above the crop square
+    #BUTTON_SUBMIT_CLEAR_IMAGE {
+        display: none;
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 1;
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        font-size: 1.1em;
+        border-radius: 50%;
+        background: rgba(17, 17, 17, 0.8);
+        &:hover {
+            background: #a33;
+        }
     }
     .submit-hint {
         padding: 1em;
@@ -97,8 +115,12 @@
         .submit-crop {
             display: block;
         }
+        #BUTTON_SUBMIT_CLEAR_IMAGE {
+            display: block;
+        }
     }
 }
+
 
 #submitPreview {
     display: block;

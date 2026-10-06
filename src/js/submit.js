@@ -87,6 +87,14 @@ export default class Submit {
         area.addEventListener("click", () => {
             if (!this.bitmap) $("#submitFile").trigger("click");
         });
+        $("#BUTTON_SUBMIT_CLEAR_IMAGE")
+            // the image area underneath would start dragging the square, and its click would open the file picker
+            .on("pointerdown", (e) => e.stopPropagation())
+            .on("click", (e) => {
+                e.stopPropagation();
+                this.clearImage();
+                this.updateButtons();
+            });
         // a file dropped anywhere on the view would otherwise make the browser leave the page to show it
         $("#submit").on("dragover", (e) => e.preventDefault());
         $("#submit").on("drop", (e) => {

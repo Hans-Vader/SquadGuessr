@@ -94,6 +94,7 @@
         "pasteHint": "Paste a screenshot (Ctrl+V), drop it here or click to choose a file",
         "discordHint": "Upload the ZIP in the suggestions channel on",
         "remove": "Remove",
+        "removeImage": "Remove image",
         "choice": {
             "submit": "SUBMIT",
             "review": "REVIEW"

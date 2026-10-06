@@ -94,6 +94,7 @@
         "pasteHint": "粘贴截图（Ctrl+V）、拖放到此处或点击选择文件",
         "discordHint": "请将 ZIP 文件上传到以下平台的建议频道：",
         "remove": "删除",
+        "removeImage": "移除图片",
         "choice": {
             "submit": "提交",
             "review": "审核"
