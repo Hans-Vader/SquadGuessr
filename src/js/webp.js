@@ -1,6 +1,8 @@
 // every live hint image is exactly this size
 export const IMAGE_SIZE = 900;
-const WEBP_QUALITY = 0.85;
+// measured on 1000×1000 game screenshots: 0.85 ≈ 88 KB / 39 dB PSNR, 0.95 ≈ 189 KB / 42.5 dB, lossless ≈ 840 KB;
+// 0.95 averages about the size of the live hint images (100–250 KB)
+const WEBP_QUALITY = 0.95;
 
 /**
  * The largest square in the middle of the image

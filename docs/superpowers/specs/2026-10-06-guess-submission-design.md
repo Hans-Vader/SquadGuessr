@@ -55,7 +55,7 @@ Alles läuft im Browser. Es gibt keinen Server-Speicher und keinen Login.
 | Einstieg Einreichen | Button „SUBMIT A GUESS“ im Menü, darunter Auswahl SUBMIT, und `/?submit` |
 | Einstieg Review | Dieselbe Auswahl im Menü (REVIEW) und `/?review`, kein Login |
 | ZIP-Bibliothek | `fflate` (devDependency wie alle Frontend-Bibliotheken) |
-| Bild | Quadrat wählbar, 900×900, WebP mit Qualität 0.85 |
+| Bild | Quadrat wählbar, 900×900, WebP mit Qualität 0.95 (gemessen: Ø 189 KB, 42,5 dB PSNR bei Spiel-Screenshots) |
 | Menge | Beliebig viele Guesses pro ZIP |
 | `mode` | Beim Einreichen immer `"easy"`. Im Review gelten `easy` und `hard` |
 | Map-Name | Der `name` aus `MAPS` (z. B. `"Sanxian"`, `"AlBasrah"`) |
@@ -142,7 +142,7 @@ img/guesses/<id>.webp
 ### Hinzufügen
 
 - **ADD** ist nur aktiv, wenn Map, Bild und Marker vorhanden sind.
-- Beim Klick zeichnet das Tool das gewählte Quadrat auf ein 900×900-Canvas (`imageSmoothingQuality = "high"`) und erzeugt mit `toBlob(…, "image/webp", 0.85)` das Bild.
+- Beim Klick zeichnet das Tool das gewählte Quadrat auf ein 900×900-Canvas (`imageSmoothingQuality = "high"`) und erzeugt mit `toBlob(…, "image/webp", 0.95)` das Bild.
 - Ist `blob` leer oder `blob.type` nicht `image/webp` (Safari), kommt der Toast „Your browser cannot create WebP images. Please use Chrome, Edge or Firefox“, und nichts wird hinzugefügt.
 - Der Eintrag kommt in die Liste:
   - Vorschaubild, Map-Name und ✕ zum Entfernen.
@@ -209,7 +209,7 @@ img/guesses/<id>.webp
 
 - **EXPORT (n)** ist nur aktiv, wenn mindestens ein Guess angenommen ist.
 - Der Export enthält die angenommenen Guesses in der Reihenfolge der Warteschlange.
-- Jedes Bild im Export ist ein WebP mit 900×900. Ein Bild, das das noch nicht ist (PNG, JPEG, WebP in anderer Größe), wird umgewandelt: mittiges Quadrat, skaliert auf 900×900 (auch hoch), WebP mit Qualität 0.85. Die `url` bekommt die Endung `.webp`. Ein fertiges 900×900-WebP bleibt Byte für Byte unverändert.
+- Jedes Bild im Export ist ein WebP mit 900×900. Ein Bild, das das noch nicht ist (PNG, JPEG, WebP in anderer Größe), wird umgewandelt: mittiges Quadrat, skaliert auf 900×900 (auch hoch), WebP mit Qualität 0.95. Die `url` bekommt die Endung `.webp`. Ein fertiges 900×900-WebP bleibt Byte für Byte unverändert.
 - Die Bilder werden nacheinander umgewandelt, damit nicht alle großen Screenshots gleichzeitig im Speicher liegen.
 - Der Export bricht mit dem Toast „Export failed“ und dem Grund ab, ohne ZIP und ohne die Entscheidungen zu verlieren, wenn ein Bild sich nicht lesen lässt, der Browser kein WebP erzeugen kann (Safari) oder zwei Einträge denselben Bildpfad bekämen (z. B. `x.png` und `x.webp`).
 - Gibt es Entscheidungen, die seit dem letzten Export geändert worden sind, warnt der Browser beim Verlassen der Seite.
