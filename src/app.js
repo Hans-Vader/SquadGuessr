@@ -17,6 +17,7 @@ import "./components/shared/_variables.scss";
 import "./components/game/mapLogo.scss";
 import "./components/lobby/lobby.scss";
 import "./components/submit/submit.scss";
+import "./components/review/review.scss";
 
 
 // JS

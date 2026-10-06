@@ -9,6 +9,7 @@ import { solutionMarker } from "./guessMarker.js";
 import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
 import Submit from "./submit.js";
+import Review from "./review.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -39,6 +40,7 @@ export default class SquadGuessr {
         this.session = false;
         this.mp = new Multiplayer(this);
         this.submit = new Submit(this);
+        this.review = new Review(this);
     }
 
     initializeElements() {
@@ -64,6 +66,7 @@ export default class SquadGuessr {
         this.switchUI("menu");
         this.mp.init();
         this.submit.init();
+        this.review.init();
     }
 
     initializeCore() {
@@ -522,7 +525,7 @@ export default class SquadGuessr {
     switchUI(page) {
 
         // every page plus the footer logos: whatever a state does not show gets hidden
-        const parts = ["#menu", "#timer_ui", "#map_ui", "#results", "#lobby", "#submit", "#footerLogos"];
+        const parts = ["#menu", "#timer_ui", "#map_ui", "#results", "#lobby", "#submit", "#review", "#footerLogos"];
 
         const uiStates = {
             menu: {
@@ -547,6 +550,10 @@ export default class SquadGuessr {
             },
             submit: {
                 show: ["#submit", "#footerLogos"],
+                scoreHidden: true
+            },
+            review: {
+                show: ["#review", "#footerLogos"],
                 scoreHidden: true
             }
         };

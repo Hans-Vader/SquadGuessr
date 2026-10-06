@@ -104,5 +104,18 @@
             "noWebp": "Your browser cannot create WebP images. Please use Chrome, Edge or Firefox"
         }
     },
+    "review": {
+        "title": "Review guesses",
+        "dropHint": "Drop ZIP files here or click to choose",
+        "by": "by",
+        "loadProblems": "Some guesses were not loaded",
+        "duplicates": "{{n}} duplicate guesses skipped",
+        "buttons": {
+            "add": "ADD ZIP",
+            "accept": "ACCEPT (A)",
+            "reject": "REJECT (D)",
+            "export": "EXPORT"
+        }
+    },
     "desc": "Find where the screenshot has been taken"
 }

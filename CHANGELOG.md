@@ -4,6 +4,8 @@
 - Added "Play with friends": join a session from your phone by code/QR, play synchronized rounds and find out who wins
 - Added a big-screen view (`?watch=CODE`) for projectors/TVs
 - Added Docker Compose hosting (frontend + multiplayer server)
+- Added "Submit a guess": paste a screenshot, choose its square, click where it was taken and download a ZIP to post on Discord
+- Added a review page (`?review`) to check submitted ZIPs and export the accepted guesses
 
 </br></br><!-- CHANGELOG SPLIT MARKER -->
 
