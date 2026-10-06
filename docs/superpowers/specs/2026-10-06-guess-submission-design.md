@@ -189,6 +189,12 @@ img/guesses/<id>.webp
 - Liegt ihr Bild in der ZIP, wird es angezeigt. Sonst bleibt der Bildbereich leer.
 - Map und Einreicher zeigen „—“. Die Karte zeigt keinen Marker und bleibt auf der zuletzt geladenen Map.
 
+### Leeren
+
+- **CLEAR** im Kopf der Ansicht leert die Warteschlange: Die Vorschaubilder werden freigegeben, die Ablagefläche erscheint wieder, EXPORT steht auf 0.
+- Bei leerer Warteschlange ist CLEAR ausgegraut.
+- Gibt es Entscheidungen, die seit dem letzten Export geändert wurden, fragt ein `confirm()` vorher nach („Clear the review? Decisions that were not exported will be lost.“). Ohne solche Entscheidungen leert CLEAR sofort.
+
 ### Export
 
 - **EXPORT (n)** ist nur aktiv, wenn mindestens ein Guess angenommen ist.

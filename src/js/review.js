@@ -69,6 +69,7 @@ export default class Review {
         $("#BUTTON_REVIEW_ACCEPT").on("click", () => this.decide("accepted"));
         $("#BUTTON_REVIEW_REJECT").on("click", () => this.decide("rejected"));
         $("#BUTTON_REVIEW_EXPORT").on("click", () => this.export());
+        $("#BUTTON_REVIEW_CLEAR").on("click", () => this.clear());
 
         document.addEventListener("keydown", (e) => {
             if (!$view.is(":visible") || !this.items.length || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -90,8 +91,8 @@ export default class Review {
             e.returnValue = true;
         });
         // the EXPORT count is not covered by data-i18n
-        i18next.on("languageChanged", () => this.renderExport());
-        this.renderExport();
+        i18next.on("languageChanged", () => this.renderButtons());
+        this.renderButtons();
 
         if (new URLSearchParams(location.search).has("review")) this.open();
     }
@@ -199,14 +200,32 @@ export default class Review {
         const strip = $strip[0];
         const current = $strip.children(".current")[0];
         if (current) strip.scrollLeft += current.getBoundingClientRect().left - strip.getBoundingClientRect().left - (strip.clientWidth - current.offsetWidth) / 2;
-        this.renderExport();
+        this.renderButtons();
     }
 
-    renderExport() {
+    renderButtons() {
         const accepted = this.items.filter(i => i.status === "accepted").length;
         $("#BUTTON_REVIEW_EXPORT")
             .text(`${i18next.t("review.buttons.export", { ns: "common" })} (${accepted})`)
             .prop("disabled", !accepted);
+        $("#BUTTON_REVIEW_CLEAR").prop("disabled", !this.items.length);
+    }
+
+    /**
+     * Empties the queue and frees its images; asks first when decisions were not exported yet
+     */
+    clear() {
+        if (this.dirty && !confirm(i18next.t("review.confirmClear", { ns: "common" }))) return;
+        this.items.forEach(item => { if (item.src) URL.revokeObjectURL(item.src); });
+        this.items = [];
+        this.index = 0;
+        this.dirty = false;
+        this.minimap?.markersGroup.clearLayers();
+        $("#reviewImage").removeAttr("src");
+        $("#reviewStrip").empty();
+        $("#reviewMain").prop("hidden", true);
+        $("#reviewDrop").prop("hidden", false);
+        this.renderButtons();
     }
 
     decide(status) {
@@ -240,7 +259,7 @@ export default class Review {
         } catch (err) {
             this.app.openToast("error", i18next.t("review.exportFailed", { ns: "common" }), escapeHtml(err.message));
         } finally {
-            this.renderExport();
+            this.renderButtons();
         }
     }
 }

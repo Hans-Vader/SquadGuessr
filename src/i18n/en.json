@@ -115,8 +115,10 @@
         "loadProblems": "Some guesses were not loaded",
         "duplicates": "{{n}} duplicate guesses skipped",
         "exportFailed": "Export failed",
+        "confirmClear": "Clear the review? Decisions that were not exported will be lost.",
         "buttons": {
             "add": "ADD ZIP",
+            "clear": "CLEAR",
             "accept": "ACCEPT (A)",
             "reject": "REJECT (D)",
             "export": "EXPORT"
