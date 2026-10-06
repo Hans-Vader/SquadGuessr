@@ -59,11 +59,16 @@
         "rounds": "rounds",
         "waitingForHost": "Waiting for the host…",
         "waitingForPlayers": "Waiting for others ({{answered}}/{{total}})",
+        "loadingImages": "Loading images… ({{ready}}/{{total}})",
         "gameRunning": "This game has already started. You can still watch it.",
         "reconnecting": "Reconnecting…",
-        "showOnScreen": "Show on a big screen",
         "enterName": "Enter your name first",
+        "copyJoinLink": "Copy join link",
+        "copyWatchLink": "Copy watch link",
+        "joinLinkCopied": "Join link copied",
+        "watchLinkCopied": "Watch link copied",
         "you": "You",
+        "kick": "Remove {{name}}",
         "buttons": {
             "create": "CREATE SESSION",
             "join": "JOIN",
@@ -82,7 +87,8 @@
             "GUESSES": "Could not load guesses",
             "CODE": "Enter the 4-character code",
             "SERVER_BUSY": "Too many sessions right now, try again later",
-            "REPLACED": "You went on playing in another tab or on another device"
+            "REPLACED": "You went on playing in another tab or on another device",
+            "KICKED": "The host removed you from the session"
         }
     },
     "submit": {

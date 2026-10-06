@@ -6,13 +6,16 @@ export const MAX_PLAYERS = 12;
 export const MAX_WATCHERS = 20;
 export const GRACE_MS = 1000;
 export const RECONNECT_MS = 15 * 1000;
+// how long a round waits for slow devices to load its images: the first one cold, later ones were preloaded
+export const LOAD_FIRST_MS = 10 * 1000;
+export const LOAD_MS = 5 * 1000;
 
-const HOST_ACTIONS = ["settings", "start", "endRound", "next", "lobby"];
+const HOST_ACTIONS = ["settings", "start", "endRound", "next", "lobby", "kick"];
 
 /**
- * One multiplayer session: lobby → round → reveal → … → final
+ * One multiplayer session: lobby → loading → round → reveal → loading → … → final
  * Knows nothing about sockets: `send(conn, msg)` is injected and `conn` is opaque.
- * On every phase change `state` is sent before `round`/`reveal`/`final`.
+ * On every phase change `state` is sent before `prepare`/`round`/`reveal`/`final`.
  */
 export class Session {
     constructor(code, { send, now = Date.now }) {
@@ -25,8 +28,10 @@ export class Session {
         this.phase = "lobby";
         this.round = 0;
         this.deadline = null;
+        this.loadUntil = null;
         this.players = new Map();
         this.watchers = new Set();
+        this.kicked = new Set();
         this.lastActivity = now();
     }
 
@@ -44,6 +49,7 @@ export class Session {
     }
 
     join(conn, { name, token }) {
+        if (token && this.kicked.has(token)) return this.error(conn, "KICKED");
         const known = token ? this.findPlayer(p => p.token === token) : null;
         if (known) return this.reconnect(known, conn);
         if (this.phase !== "lobby") return this.error(conn, "GAME_RUNNING");
@@ -89,6 +95,7 @@ export class Session {
         if (!player) return this.error(conn, "INVALID");
         this.touch();
         if (msg.type === "answer") return this.answer(player, msg);
+        if (msg.type === "ready") return this.ready(player, msg.index);
         if (msg.type === "leave") return this.leave(player);
         if (!HOST_ACTIONS.includes(msg.type)) return this.error(conn, "INVALID");
         if (player.id !== this.hostId) return this.error(conn, "NOT_HOST");
@@ -99,7 +106,22 @@ export class Session {
         case "endRound": return this.phase === "round" && this.deadline === null ? this.endRound() : this.error(conn, "INVALID");
         case "next": return this.next(conn);
         case "lobby": return this.toLobby(conn);
+        case "kick": return this.kick(conn, msg.playerId);
         }
+    }
+
+    /**
+     * Lobby only, and no ban: whoever is kicked can come back through the invite link, just not with their old token
+     */
+    kick(conn, playerId) {
+        if (this.phase !== "lobby" || playerId === this.hostId) return this.error(conn, "INVALID");
+        const player = this.players.get(playerId);
+        // already gone (double click, left at the same moment): nothing to do
+        if (!player) return;
+        // someone offline right now never gets the message: their reconnect with the old token is turned away instead
+        this.kicked.add(player.token);
+        this.error(player.conn, "KICKED");
+        this.leave(player);
     }
 
     updateSettings(conn, settings) {
@@ -115,7 +137,53 @@ export class Session {
         this.guesses = guesses.map(g => ({ map: g.map, url: g.url, lat: g.lat, lng: g.lng, submitter: g.submitter ?? null }));
         this.resetScores();
         this.round = 0;
+        this.load();
+    }
+
+    /**
+     * Holds the round back until every connected player has its images (or the time is up), so all see it at once
+     */
+    load() {
+        this.phase = "loading";
+        this.loadUntil = this.now() + (this.round === 0 ? LOAD_FIRST_MS : LOAD_MS);
+        // the usual case from the second round on: everyone preloaded it during the previous round
+        if (this.lateLoaders().length === 0) return this.startRound();
+        this.broadcastState();
+        this.broadcast(this.prepareMsg(this.round));
+    }
+
+    /**
+     * Who the loading round waits for: watchers never count, nor does a player whose connection is gone
+     */
+    lateLoaders() {
+        return [...this.players.values()].filter(p => p.connected && !p.stalled && p.ready < this.round);
+    }
+
+    checkLoaded() {
+        // with nobody connected the clock must not start: whoever comes back is waited for until loadUntil
+        if (!this.findPlayer(p => p.connected)) return;
+        const late = this.lateLoaders();
+        if (late.length > 0 && this.now() < this.loadUntil) return;
+        // a phone locked with its socket still open would hold up every round: not waited for until it reports back
+        late.forEach(p => { p.stalled = true; });
         this.startRound();
+    }
+
+    /**
+     * A client has the images of round `index`. Never answered with an error: duplicates and late ones are normal
+     */
+    ready(player, index) {
+        if (!["loading", "round", "reveal"].includes(this.phase) || !Number.isInteger(index)) return;
+        // while loading only the waited-for round, otherwise the running one or the announced next one: a ready
+        // left over from an earlier game falls outside and cannot mark a whole new game as loaded
+        const newest = this.phase === "loading" ? this.round : this.round + 1;
+        if (index < this.round || index > newest || index >= this.guesses.length) return;
+        const changed = player.stalled || player.ready < index;
+        player.ready = Math.max(player.ready, index);
+        player.stalled = false;
+        if (this.phase !== "loading" || !changed) return;
+        this.checkLoaded();
+        if (this.phase === "loading") this.broadcastState();
     }
 
     startRound() {
@@ -123,6 +191,8 @@ export class Session {
         this.deadline = this.settings.timer > 0 ? this.now() + this.settings.timer * 1000 : null;
         this.broadcastState();
         this.broadcast(this.roundMsg());
+        // the next round's images load while this one is played
+        if (this.round + 1 < this.guesses.length) this.broadcast(this.prepareMsg(this.round + 1));
     }
 
     answer(player, msg) {
@@ -158,6 +228,7 @@ export class Session {
     }
 
     checkRoundEnd() {
+        if (this.phase === "loading") return this.checkLoaded();
         if (this.phase !== "round") return;
         const waiting = [...this.players.values()].some(p => this.isPresent(p) && !p.answers[this.round]);
         if (!waiting) this.endRound();
@@ -178,7 +249,7 @@ export class Session {
         if (this.phase !== "reveal") return this.error(conn, "INVALID");
         if (this.round + 1 < this.guesses.length) {
             this.round++;
-            return this.startRound();
+            return this.load();
         }
         this.phase = "final";
         this.broadcastState();
@@ -241,21 +312,27 @@ export class Session {
                 connected: p.connected,
                 score: p.score,
                 answered: this.phase === "round" && Boolean(p.answers[this.round]),
+                ready: this.phase === "loading" && p.ready >= this.round,
+                stalled: p.stalled,
             })),
         };
     }
 
+    /**
+     * What a client needs to show or preload round i: never the solution, and in mapFinder not the map (it is the answer)
+     */
+    assets(i) {
+        const g = this.guesses[i];
+        return { index: i, url: g.url, map: this.settings.mode === "classic" ? g.map : null };
+    }
+
     roundMsg() {
         const g = this.guesses[this.round];
-        return {
-            type: "round",
-            index: this.round,
-            total: this.guesses.length,
-            url: g.url,
-            submitter: g.submitter,
-            deadline: this.deadline,
-            map: this.settings.mode === "classic" ? g.map : null,
-        };
+        return { type: "round", ...this.assets(this.round), total: this.guesses.length, submitter: g.submitter, deadline: this.deadline };
+    }
+
+    prepareMsg(i) {
+        return { type: "prepare", ...this.assets(i) };
     }
 
     revealMsg() {
@@ -283,7 +360,7 @@ export class Session {
     // ===== HELPERS =====
 
     addPlayer(conn, name) {
-        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [] };
+        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false };
         this.players.set(player.id, player);
         return player;
     }
@@ -293,6 +370,11 @@ export class Session {
         if (player.conn && player.conn !== conn) this.error(player.conn, "REPLACED");
         player.conn = conn;
         player.connected = true;
+        // a reload loses the preloaded images: the client reports them again for the prepare that sendPhase resends
+        player.ready = Math.min(player.ready, this.round - 1);
+        player.stalled = false;
+        // everyone was away when loadUntil passed: the first one back gets a fresh wait, not a clock that starts at once
+        if (this.phase === "loading" && this.now() >= this.loadUntil) this.loadUntil = this.now() + LOAD_MS;
         this.welcome(player);
         this.broadcastState();
         this.sendPhase(conn);
@@ -300,9 +382,13 @@ export class Session {
     }
 
     sendPhase(conn) {
+        if (this.phase === "loading") this.send(conn, this.prepareMsg(this.round));
         if (this.phase === "round") this.send(conn, this.roundMsg());
         if (this.phase === "reveal") this.send(conn, this.revealMsg());
         if (this.phase === "final") this.send(conn, this.finalMsg());
+        if (["round", "reveal"].includes(this.phase) && this.round + 1 < this.guesses.length) {
+            this.send(conn, this.prepareMsg(this.round + 1));
+        }
     }
 
     welcome(player) {
@@ -310,7 +396,7 @@ export class Session {
     }
 
     resetScores() {
-        this.players.forEach(p => { p.score = 0; p.answers = []; });
+        this.players.forEach(p => { p.score = 0; p.answers = []; p.ready = -1; p.stalled = false; });
     }
 
     broadcastState() {

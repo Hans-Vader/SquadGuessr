@@ -1,4 +1,4 @@
-import { MAPS } from "../src/js/data/maps.js";
+import { findMap } from "../src/js/data/maps.js";
 
 const MODES = ["classic", "mapFinder"];
 const TIMERS = [0, 15, 60];
@@ -31,7 +31,7 @@ export function validGuesses(guesses, rounds) {
 
 export function validGuess(g) {
     return Boolean(g)
-        && typeof g.map === "string" && MAPS.some(m => m.name.toLowerCase() === g.map.toLowerCase())
+        && typeof g.map === "string" && Boolean(findMap(g.map))
         && typeof g.url === "string" && g.url.length <= 200 && URL_PATTERN.test(g.url) && !g.url.includes("..")
         && Number.isFinite(g.lat) && Number.isFinite(g.lng)
         && (g.submitter === undefined || g.submitter === null || (typeof g.submitter === "string" && g.submitter.length <= 40));
