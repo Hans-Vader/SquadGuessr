@@ -72,7 +72,8 @@ test("unpackGuesses reads a ZIP that was packed again with compression", () => {
 
 test("unpackGuesses rejects files it cannot use as a whole", () => {
     assert.throws(() => unpackGuesses(new Uint8Array([1, 2, 3])), /not a ZIP file/);
-    assert.throws(() => unpackGuesses(zipSync({ "other.json": strToU8("[]") })), /guesses\.json missing/);
+    assert.throws(() => unpackGuesses(zipSync({ "readme.txt": strToU8("[]") })), /no \.json file/);
+    assert.throws(() => unpackGuesses(zipSync({ "a.json": strToU8("[]"), "b.json": strToU8("[]") })), /more than one \.json file: a\.json, b\.json/);
     assert.throws(() => unpackGuesses(zipSync({ "guesses.json": strToU8("nope{") })), /not valid JSON/);
     assert.throws(() => unpackGuesses(zipSync({ "guesses.json": strToU8("{\"a\":1}") })), /not a list/);
 });
@@ -101,5 +102,15 @@ test("unpackGuesses reads a ZIP whose files sit in one folder, as when the folde
         // macOS adds these resource forks next to the real files
         [`__MACOSX/${dir}._guesses.json`]: IMG,
     }, { level: 6 });
+    assert.deepEqual(unpackGuesses(bytes), [{ entry: entry(), image: IMG, error: null }]);
+});
+
+test("unpackGuesses takes the .json file whatever it is called and ignores the files macOS adds", () => {
+    const bytes = zipSync({
+        "my guesses.JSON": strToU8(JSON.stringify([entry()])),
+        [URL_A.slice(1)]: IMG,
+        "._my guesses.JSON": IMG,
+        "__MACOSX/._my guesses.JSON": IMG,
+    });
     assert.deepEqual(unpackGuesses(bytes), [{ entry: entry(), image: IMG, error: null }]);
 });

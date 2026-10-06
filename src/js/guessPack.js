@@ -5,9 +5,12 @@ const ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 const MODES = ["easy", "hard"];
 const MAX_JSON = 1024 * 1024;
 const MAX_IMAGE = 2 * 1024 * 1024;
-// compressing the unpacked folder again puts everything one level deeper ("squadguessr-Dan-2026-10-06/guesses.json")
-const JSON_PATH = /^(?:[^/]+\/)?guesses\.json$/;
+// the .json file may have any name; compressing the unpacked folder again puts everything one level deeper
+// ("squadguessr-Dan-2026-10-06/guesses.json")
+const JSON_PATH = /^(?:[^/]+\/)?[^/]+\.json$/i;
 const IMAGE_PATH = /^(?:[^/]+\/)?img\/guesses\/[^/]+\.webp$/;
+// macOS adds resource forks ("._name", "__MACOSX/…") when it compresses: they would count as a second .json file
+const MAC_JUNK = /^__MACOSX\/|(?:^|\/)\._/;
 
 /**
  * Random image name like the existing ones ("PTWxNN2RRl9vC8G")
@@ -50,24 +53,26 @@ export function unpackGuesses(bytes) {
     let files;
     try {
         files = unzipSync(bytes, {
-            filter: f => (JSON_PATH.test(f.name) && f.originalSize <= MAX_JSON)
-                || (IMAGE_PATH.test(f.name) && f.originalSize <= MAX_IMAGE),
+            filter: f => !MAC_JUNK.test(f.name) && (
+                (JSON_PATH.test(f.name) && f.originalSize <= MAX_JSON) || (IMAGE_PATH.test(f.name) && f.originalSize <= MAX_IMAGE)
+            ),
         });
     } catch {
         throw new Error("not a ZIP file");
     }
-    // the shortest path wins, so a guesses.json at the top level beats one in a folder
-    const jsonPath = Object.keys(files).filter(name => JSON_PATH.test(name)).sort((a, b) => a.length - b.length)[0];
-    if (!jsonPath) throw new Error("guesses.json missing or too large");
-    // images are looked up next to the guesses.json that was read
-    const dir = jsonPath.slice(0, -"guesses.json".length);
+    const jsonPaths = Object.keys(files).filter(name => JSON_PATH.test(name));
+    if (!jsonPaths.length) throw new Error("no .json file (up to 1 MB)");
+    if (jsonPaths.length > 1) throw new Error(`more than one .json file: ${jsonPaths.join(", ")}`);
+    const [jsonPath] = jsonPaths;
+    // images are looked up next to the .json file
+    const dir = jsonPath.slice(0, jsonPath.lastIndexOf("/") + 1);
     let list;
     try {
         list = JSON.parse(strFromU8(files[jsonPath]));
     } catch {
-        throw new Error("guesses.json is not valid JSON");
+        throw new Error(`${jsonPath} is not valid JSON`);
     }
-    if (!Array.isArray(list)) throw new Error("guesses.json is not a list");
+    if (!Array.isArray(list)) throw new Error(`${jsonPath} is not a list`);
 
     return list.map(g => {
         const path = typeof g?.url === "string" ? dir + g.url.slice(1) : "";

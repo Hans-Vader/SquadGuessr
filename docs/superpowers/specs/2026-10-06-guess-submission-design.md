@@ -171,7 +171,7 @@ img/guesses/<id>.webp
 - Ist die Warteschlange leer, füllt eine Ablagefläche („Drop ZIP files here or click to choose“) die Ansicht.
 - Danach kann man weitere ZIPs auf die ganze Ansicht ziehen oder über **ADD ZIP** wählen. Die Dateiauswahl erlaubt mehrere Dateien (`multiple`, `accept=".zip"`).
 - Alle Guesses landen in einer Warteschlange, in der Reihenfolge der Dateien und der Einträge.
-- Eine Datei, die sich nicht lesen lässt, meldet ein Toast mit dem Dateinamen und dem Grund. Gemeint sind: keine ZIP, `guesses.json` fehlt oder ist zu groß, kein JSON-Array. Die übrigen Dateien laden trotzdem.
+- Eine Datei, die sich nicht lesen lässt, meldet ein Toast mit dem Dateinamen und dem Grund. Gemeint sind: keine ZIP, keine oder mehrere `.json`-Dateien, `.json`-Datei zu groß, kein JSON-Array. Die übrigen Dateien laden trotzdem.
 - Ein Guess, dessen `url` schon in der Warteschlange steht, wird übersprungen. Die Zahl der übersprungenen Guesses zeigt ein Toast.
 
 ### Sichten
@@ -200,12 +200,14 @@ img/guesses/<id>.webp
 Die ZIPs kommen von Fremden. Sie sind eine Vertrauensgrenze.
 
 1. **Entpacken:**
-   - `unzipSync(bytes, { filter })` entpackt nur `guesses.json` mit `originalSize` ≤ 1 MB und Dateien unter `img/guesses/` mit der Endung `.webp` und `originalSize` ≤ 2 MB.
-   - Beides darf zusätzlich in genau einem Ordner liegen (`squadguessr-Dan-2026-10-06/guesses.json`). So sieht eine ZIP aus, deren entpackter Ordner neu komprimiert wurde. Gilt die `guesses.json` auf oberster Ebene, sonst die im Ordner; die Bilder werden neben ihr gesucht.
+   - `unzipSync(bytes, { filter })` entpackt nur `.json`-Dateien beliebigen Namens mit `originalSize` ≤ 1 MB und Dateien unter `img/guesses/` mit der Endung `.webp` und `originalSize` ≤ 2 MB.
+   - Beides darf zusätzlich in genau einem Ordner liegen (`squadguessr-Dan-2026-10-06/guesses.json`). So sieht eine ZIP aus, deren entpackter Ordner neu komprimiert wurde. Die Bilder werden neben der `.json`-Datei gesucht.
+   - Was macOS beim Komprimieren hinzufügt (`__MACOSX/…`, Dateien mit `._` am Namensanfang), wird nie entpackt und zählt nicht als `.json`-Datei.
    - Alles andere wird gar nicht erst entpackt.
    - Wirft `unzipSync`, ist die ganze Datei unlesbar.
-2. **`guesses.json`:**
-   - Muss vorhanden sein, sich als JSON parsen lassen und ein Array sein. Sonst ist die ganze Datei unlesbar.
+2. **Die `.json`-Datei:**
+   - Es muss genau eine geben. Keine ergibt „no .json file“, mehrere ergeben „more than one .json file“ mit ihren Namen.
+   - Sie muss sich als JSON parsen lassen und ein Array sein. Sonst ist die ganze Datei unlesbar.
 3. **Jeder Eintrag:**
    - Er muss ein Objekt sein und `validGuess` bestehen: bekannte Map ohne Rücksicht auf Groß- und Kleinschreibung, sicherer `url`-Pfad unter `/img/`, endliche `lat`/`lng`, `submitter` fehlt oder ist ein String mit höchstens 40 Zeichen.
    - `mode` muss `"easy"` oder `"hard"` sein.
@@ -249,7 +251,8 @@ Das Dockerfile bleibt unverändert. Der Build kopiert ohnehin das ganze Repo, un
 - Ungültig mit Grund werden: unbekannte Map, `lat` als `NaN` bzw. `null` nach JSON, Name über 40 Zeichen, `mode: "medium"`, fehlendes Bild, Eintrag ist kein Objekt.
 - Fremde Felder fehlen nach dem Entpacken.
 - Andere Dateien in der ZIP werden ignoriert. Ein Bild über 2 MB gilt als fehlend.
-- Bytes, die keine ZIP sind, eine ZIP ohne `guesses.json` und eine `guesses.json`, die kein Array ist, ergeben jeweils einen Fehler mit Meldung.
+- Bytes, die keine ZIP sind, eine ZIP ohne `.json`-Datei, eine mit zwei `.json`-Dateien und eine `.json`-Datei, die kein Array ist, ergeben jeweils einen Fehler mit Meldung.
+- Eine `.json`-Datei mit anderem Namen (auch `.JSON`) wird gelesen. `._`-Dateien und `__MACOSX/` zählen nicht.
 - Eine ZIP mit Kompression (Stufe 6) lässt sich lesen. Das ist der Fall, in dem macOS die ZIP entpackt und der User sie neu packt.
 - Eine ZIP, deren Dateien in einem Ordner liegen (neu komprimierter Ordner, samt `__MACOSX/`-Einträgen), lässt sich lesen.
 - `newImageId` liefert 15 Zeichen aus `[A-Za-z0-9]`.
