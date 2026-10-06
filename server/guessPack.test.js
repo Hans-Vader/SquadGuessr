@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
-import { newImageId, packGuesses, unpackGuesses, zipFileName } from "../src/js/guessPack.js";
+import { newImageId, packGuesses, unpackGuesses, zipFileName, isWebp, webpUrl, MAX_IMAGE } from "../src/js/guessPack.js";
 
 const IMG = new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]);
 const URL_A = "/img/guesses/abcDEF123456789.webp";
@@ -56,13 +56,37 @@ test("unpackGuesses drops unknown fields", () => {
     assert.deepEqual(item.entry, entry());
 });
 
-test("unpackGuesses only reads images under img/guesses/ and up to 2 MB", () => {
+test("unpackGuesses only reads images under img/guesses/ and up to MAX_IMAGE", () => {
     const big = "img/guesses/big.webp";
     const items = unpackGuesses(zipOf(
-        [entry({ url: "/img/other/abc.webp" }), entry({ url: `/${big}` })],
-        { "img/other/abc.webp": IMG, [big]: new Uint8Array(2 * 1024 * 1024 + 1), "readme.txt": IMG },
+        [entry({ url: "/img/other/abc.webp" }), entry({ url: `/${big}` }), entry({ url: "/img/guesses/anim.gif" })],
+        { "img/other/abc.webp": IMG, [big]: new Uint8Array(MAX_IMAGE + 1), "img/guesses/anim.gif": IMG, "readme.txt": IMG },
     ));
-    assert.deepEqual(items.map(i => i.error), ["image missing", "image missing"]);
+    assert.deepEqual(items.map(i => i.error), ["image missing", "image missing", "image missing"]);
+});
+
+test("unpackGuesses reads PNG and JPEG images too, whatever the case of the extension", () => {
+    const urls = ["/img/guesses/a.png", "/img/guesses/b.JPG", "/img/guesses/c.jpeg"];
+    const items = unpackGuesses(zipOf(urls.map(url => entry({ url })), Object.fromEntries(urls.map(u => [u.slice(1), IMG]))));
+    assert.deepEqual(items, urls.map(url => ({ entry: entry({ url }), image: IMG, error: null })));
+});
+
+test("packGuesses refuses two guesses that would share one image path", () => {
+    assert.throws(() => packGuesses([{ entry: entry(), image: IMG }, { entry: entry({ map: "Narva" }), image: IMG }]), /duplicate image path img\/guesses\/abcDEF123456789\.webp/);
+});
+
+test("isWebp checks the RIFF/WEBP header", () => {
+    const header = (tag) => new Uint8Array([...strToU8("RIFF"), 9, 9, 9, 9, ...strToU8(tag), 1, 2]);
+    assert.equal(isWebp(header("WEBP")), true);
+    assert.equal(isWebp(header("WAVE")), false);
+    assert.equal(isWebp(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13])), false);
+    assert.equal(isWebp(IMG), false);
+});
+
+test("webpUrl swaps the extension for .webp", () => {
+    assert.equal(webpUrl("/img/guesses/hanswurst_tallil_000001.png"), "/img/guesses/hanswurst_tallil_000001.webp");
+    assert.equal(webpUrl("/img/guesses/x.y.JPEG"), "/img/guesses/x.y.webp");
+    assert.equal(webpUrl("/img/guesses/z.webp"), "/img/guesses/z.webp");
 });
 
 test("unpackGuesses reads a ZIP that was packed again with compression", () => {

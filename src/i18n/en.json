@@ -114,6 +114,7 @@
         "by": "by",
         "loadProblems": "Some guesses were not loaded",
         "duplicates": "{{n}} duplicate guesses skipped",
+        "exportFailed": "Export failed",
         "buttons": {
             "add": "ADD ZIP",
             "accept": "ACCEPT (A)",

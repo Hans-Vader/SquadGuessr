@@ -2,12 +2,37 @@ import i18next from "i18next";
 import { MAPS } from "./data/maps.js";
 import { squadMinimap } from "./squadMinimap.js";
 import { guessMarker } from "./guessMarker.js";
-import { packGuesses, unpackGuesses, zipFileName, downloadZip } from "./guessPack.js";
+import { packGuesses, unpackGuesses, zipFileName, downloadZip, isWebp, webpUrl } from "./guessPack.js";
+import { IMAGE_SIZE, squareWebp } from "./webp.js";
 
 const REVIEW_ZOOM = 4;
 
 // the toast renders html, file names come from strangers
 const escapeHtml = (text) => $("<div>").text(text).html();
+
+/**
+ * An accepted guess as it goes into the export: every image a 900×900 webp (the centred square), the url ending in .webp
+ * @param {{entry: Object, image: Uint8Array}} item
+ * @returns {Promise<{entry: Object, image: Uint8Array}>}
+ * @throws {Error} when the image cannot be read or the browser cannot encode webp
+ */
+async function toExportItem({ entry, image }) {
+    let bitmap;
+    try {
+        bitmap = await createImageBitmap(new Blob([image]));
+    } catch {
+        throw new Error(`${entry.url}: not a readable image`);
+    }
+    // re-encoding a finished webp would only cost quality
+    if (isWebp(image) && bitmap.width === IMAGE_SIZE && bitmap.height === IMAGE_SIZE) {
+        bitmap.close();
+        return { entry, image };
+    }
+    const blob = await squareWebp(bitmap);
+    bitmap.close();
+    if (!blob) throw new Error(i18next.t("submit.errors.noWebp", { ns: "common" }));
+    return { entry: { ...entry, url: webpUrl(entry.url) }, image: new Uint8Array(await blob.arrayBuffer()) };
+}
 
 /**
  * Admin view (?review): open submitted ZIPs, accept or reject every guess, export the accepted ones as one ZIP
@@ -106,7 +131,8 @@ export default class Review {
                     ...g,
                     zip: file.name,
                     status: g.error ? "invalid" : "open",
-                    src: g.image && URL.createObjectURL(new Blob([g.image], { type: "image/webp" })),
+                    // no type: the browser recognises webp, png and jpeg by their content
+                    src: g.image && URL.createObjectURL(new Blob([g.image])),
                 });
             });
         }
@@ -201,10 +227,20 @@ export default class Review {
         return first === -1 ? null : first;
     }
 
-    export() {
+    async export() {
         const accepted = this.items.filter(i => i.status === "accepted");
         if (!accepted.length) return;
-        downloadZip(packGuesses(accepted), zipFileName("approved"));
-        this.dirty = false;
+        $("#BUTTON_REVIEW_EXPORT").prop("disabled", true);
+        try {
+            const items = [];
+            // one after the other: decoding every full-size screenshot at once could take a lot of memory
+            for (const item of accepted) items.push(await toExportItem(item));
+            downloadZip(packGuesses(items), zipFileName("approved"));
+            this.dirty = false;
+        } catch (err) {
+            this.app.openToast("error", i18next.t("review.exportFailed", { ns: "common" }), escapeHtml(err.message));
+        } finally {
+            this.renderExport();
+        }
     }
 }

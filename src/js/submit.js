@@ -3,10 +3,8 @@ import { MAPS } from "./data/maps.js";
 import { squadMinimap } from "./squadMinimap.js";
 import { guessMarker } from "./guessMarker.js";
 import { newImageId, packGuesses, zipFileName, downloadZip } from "./guessPack.js";
+import { IMAGE_SIZE, centredSquare, squareWebp } from "./webp.js";
 
-// every live hint image is exactly this size
-const IMAGE_SIZE = 900;
-const WEBP_QUALITY = 0.85;
 // share of the long image side the square moves per arrow key press
 const KEY_STEP = 0.02;
 
@@ -129,19 +127,18 @@ export default class Submit {
             return this.toast("submit.errors.notImage");
         }
         const { width, height } = bitmap;
-        const size = Math.min(width, height);
-        if (size < IMAGE_SIZE) {
+        if (Math.min(width, height) < IMAGE_SIZE) {
             bitmap.close();
             return this.toast("submit.errors.tooSmall", { width, height });
         }
         this.clearImage();
         this.bitmap = bitmap;
-        this.crop = { sx: 0, sy: 0, size };
+        this.crop = centredSquare(bitmap);
         this.previewUrl = URL.createObjectURL(file);
         $("#submitPreview").attr("src", this.previewUrl);
         $(".submit-crop").css("--ratio", String(width / height));
         $("#submitImage").addClass("loaded");
-        this.moveCrop((width - size) / 2, (height - size) / 2);
+        this.moveCrop(this.crop.sx, this.crop.sy);
         this.updateButtons();
     }
 
@@ -197,9 +194,9 @@ export default class Submit {
         const scale = this.minimap.mapToGameScale;
         // the same numbers the debug helper logLatLng prints for this spot
         const entry = { map: this.map.name, mode: "easy", url: `/img/guesses/${newImageId()}.webp`, lat: lat * scale, lng: lng * scale };
-        const blob = await this.encode();
+        const blob = await squareWebp(this.bitmap, this.crop);
         this.adding = false;
-        if (blob?.type !== "image/webp") {
+        if (!blob) {
             this.updateButtons();
             return this.toast("submit.errors.noWebp");
         }
@@ -209,22 +206,6 @@ export default class Submit {
         this.marker?.remove();
         this.marker = null;
         this.renderList();
-    }
-
-    /**
-     * The chosen square as a 900×900 webp
-     * @returns {Promise<Blob|null>}
-     */
-    encode() {
-        const { sx, sy, size } = this.crop;
-        const canvas = document.createElement("canvas");
-        canvas.width = IMAGE_SIZE;
-        canvas.height = IMAGE_SIZE;
-        const ctx = canvas.getContext("2d");
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(this.bitmap, sx, sy, size, size, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-        // Safari cannot encode webp and silently hands back a png instead
-        return new Promise(resolve => canvas.toBlob(resolve, "image/webp", WEBP_QUALITY));
     }
 
     remove(index) {

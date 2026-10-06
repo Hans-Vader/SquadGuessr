@@ -4,11 +4,12 @@ import { validGuess } from "../../server/validate.js";
 const ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const MODES = ["easy", "hard"];
 const MAX_JSON = 1024 * 1024;
-const MAX_IMAGE = 2 * 1024 * 1024;
+// full-size PNG screenshots (4K included) still fit; the review turns them into 900×900 webp on export
+export const MAX_IMAGE = 32 * 1024 * 1024;
 // the .json file may have any name; compressing the unpacked folder again puts everything one level deeper
 // ("squadguessr-Dan-2026-10-06/guesses.json")
 const JSON_PATH = /^(?:[^/]+\/)?[^/]+\.json$/i;
-const IMAGE_PATH = /^(?:[^/]+\/)?img\/guesses\/[^/]+\.webp$/;
+const IMAGE_PATH = /^(?:[^/]+\/)?img\/guesses\/[^/]+\.(?:webp|png|jpe?g)$/i;
 // macOS adds resource forks ("._name", "__MACOSX/…") when it compresses: they would count as a second .json file
 const MAC_JUNK = /^__MACOSX\/|(?:^|\/)\._/;
 
@@ -38,9 +39,33 @@ function toEntry(g) {
  */
 export function packGuesses(items) {
     const files = { "guesses.json": strToU8(JSON.stringify(items.map(i => toEntry(i.entry)), null, 4)) };
-    // webp is already compressed: storing it costs nothing in size
-    items.forEach(i => { files[i.entry.url.slice(1)] = [i.image, { level: 0 }]; });
+    items.forEach(i => {
+        const path = i.entry.url.slice(1);
+        // a second image on the same path would silently replace the first one
+        if (Object.hasOwn(files, path)) throw new Error(`duplicate image path ${path}`);
+        // webp is already compressed: storing it costs nothing in size
+        files[path] = [i.image, { level: 0 }];
+    });
     return zipSync(files);
+}
+
+/**
+ * True when the bytes are a WebP file (RIFF container with the WEBP tag)
+ * @param {Uint8Array} bytes
+ * @returns {boolean}
+ */
+export function isWebp(bytes) {
+    const ascii = (from, to) => String.fromCharCode(...bytes.subarray(from, to));
+    return ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP";
+}
+
+/**
+ * The same path with a .webp extension ("/img/guesses/a.png" → "/img/guesses/a.webp")
+ * @param {string} url
+ * @returns {string}
+ */
+export function webpUrl(url) {
+    return `${url.replace(/\.[^./]*$/, "")}.webp`;
 }
 
 /**

@@ -176,7 +176,7 @@ img/guesses/<id>.webp
 
 ### Sichten
 
-- Links das Bild groß, rechts die Minimap.
+- Links das Bild als mittiges Quadrat (`object-fit: cover`), also genau der Ausschnitt, den der Export behält. Rechts die Minimap.
 - Die Karte lädt die Map des Guesses, setzt einen festen Marker auf `lat × gameToMapScale`, `lng × gameToMapScale` und zentriert mit Zoom 4 darauf.
 - Darüber stehen Map, Einreicher (oder „—“), ZIP-Name und der Fortschritt „3 / 23“.
 - **ACCEPT** (`A`) und **REJECT** (`D`) entscheiden. Nach einer Entscheidung springt die Ansicht zum nächsten offenen Guess hinter dem aktuellen, sonst zum ersten offenen. Gibt es keinen offenen mehr, bleibt sie stehen.
@@ -193,6 +193,9 @@ img/guesses/<id>.webp
 
 - **EXPORT (n)** ist nur aktiv, wenn mindestens ein Guess angenommen ist.
 - Der Export enthält die angenommenen Guesses in der Reihenfolge der Warteschlange.
+- Jedes Bild im Export ist ein WebP mit 900×900. Ein Bild, das das noch nicht ist (PNG, JPEG, WebP in anderer Größe), wird umgewandelt: mittiges Quadrat, skaliert auf 900×900 (auch hoch), WebP mit Qualität 0.85. Die `url` bekommt die Endung `.webp`. Ein fertiges 900×900-WebP bleibt Byte für Byte unverändert.
+- Die Bilder werden nacheinander umgewandelt, damit nicht alle großen Screenshots gleichzeitig im Speicher liegen.
+- Der Export bricht mit dem Toast „Export failed“ und dem Grund ab, ohne ZIP und ohne die Entscheidungen zu verlieren, wenn ein Bild sich nicht lesen lässt, der Browser kein WebP erzeugen kann (Safari) oder zwei Einträge denselben Bildpfad bekämen (z. B. `x.png` und `x.webp`).
 - Gibt es Entscheidungen, die seit dem letzten Export geändert worden sind, warnt der Browser beim Verlassen der Seite.
 
 ## Validierung beim Lesen einer ZIP
@@ -200,7 +203,7 @@ img/guesses/<id>.webp
 Die ZIPs kommen von Fremden. Sie sind eine Vertrauensgrenze.
 
 1. **Entpacken:**
-   - `unzipSync(bytes, { filter })` entpackt nur `.json`-Dateien beliebigen Namens mit `originalSize` ≤ 1 MB und Dateien unter `img/guesses/` mit der Endung `.webp` und `originalSize` ≤ 2 MB.
+   - `unzipSync(bytes, { filter })` entpackt nur `.json`-Dateien beliebigen Namens mit `originalSize` ≤ 1 MB und Dateien unter `img/guesses/` mit der Endung `.webp`, `.png`, `.jpg` oder `.jpeg` (Groß- und Kleinschreibung egal) und `originalSize` ≤ 32 MB, damit auch volle PNG-Screenshots passen.
    - Beides darf zusätzlich in genau einem Ordner liegen (`squadguessr-Dan-2026-10-06/guesses.json`). So sieht eine ZIP aus, deren entpackter Ordner neu komprimiert wurde. Die Bilder werden neben der `.json`-Datei gesucht.
    - Was macOS beim Komprimieren hinzufügt (`__MACOSX/…`, Dateien mit `._` am Namensanfang), wird nie entpackt und zählt nicht als `.json`-Datei.
    - Alles andere wird gar nicht erst entpackt.
@@ -250,7 +253,10 @@ Das Dockerfile bleibt unverändert. Der Build kopiert ohnehin das ganze Repo, un
 - `submitter` fehlt im Eintrag, wenn der Name leer ist.
 - Ungültig mit Grund werden: unbekannte Map, `lat` als `NaN` bzw. `null` nach JSON, Name über 40 Zeichen, `mode: "medium"`, fehlendes Bild, Eintrag ist kein Objekt.
 - Fremde Felder fehlen nach dem Entpacken.
-- Andere Dateien in der ZIP werden ignoriert. Ein Bild über 2 MB gilt als fehlend.
+- Andere Dateien in der ZIP werden ignoriert, auch `.gif`. Ein Bild über 32 MB gilt als fehlend.
+- PNG- und JPEG-Bilder (auch `.JPG`) werden gelesen.
+- `packGuesses` lehnt zwei Einträge mit demselben Bildpfad ab.
+- `isWebp` erkennt den RIFF/WEBP-Kopf, `webpUrl` tauscht die Endung gegen `.webp`.
 - Bytes, die keine ZIP sind, eine ZIP ohne `.json`-Datei, eine mit zwei `.json`-Dateien und eine `.json`-Datei, die kein Array ist, ergeben jeweils einen Fehler mit Meldung.
 - Eine `.json`-Datei mit anderem Namen (auch `.JSON`) wird gelesen. `._`-Dateien und `__MACOSX/` zählen nicht.
 - Eine ZIP mit Kompression (Stufe 6) lässt sich lesen. Das ist der Fall, in dem macOS die ZIP entpackt und der User sie neu packt.

@@ -68,11 +68,18 @@
     }
 }
 
+.review-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    // the shown square is exactly what the export keeps: the centred square of the image
+    container-type: size;
+}
+
 #reviewImage {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
+    width: min(100cqw, 100cqh);
+    height: min(100cqw, 100cqh);
+    object-fit: cover;
 }
 
 #reviewMinimap {
