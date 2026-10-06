@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
-import { newImageId, packGuesses, unpackGuesses, zipFileName, isWebp, webpUrl, MAX_IMAGE } from "../src/js/guessPack.js";
+import { newImageId, packGuesses, unpackGuesses, zipFileName, isWebp, MAX_IMAGE } from "../src/js/guessPack.js";
 
 const IMG = new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]);
 const URL_A = "/img/guesses/abcDEF123456789.webp";
@@ -81,12 +81,6 @@ test("isWebp checks the RIFF/WEBP header", () => {
     assert.equal(isWebp(header("WAVE")), false);
     assert.equal(isWebp(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13])), false);
     assert.equal(isWebp(IMG), false);
-});
-
-test("webpUrl swaps the extension for .webp", () => {
-    assert.equal(webpUrl("/img/guesses/hanswurst_tallil_000001.png"), "/img/guesses/hanswurst_tallil_000001.webp");
-    assert.equal(webpUrl("/img/guesses/x.y.JPEG"), "/img/guesses/x.y.webp");
-    assert.equal(webpUrl("/img/guesses/z.webp"), "/img/guesses/z.webp");
 });
 
 test("unpackGuesses reads a ZIP that was packed again with compression", () => {

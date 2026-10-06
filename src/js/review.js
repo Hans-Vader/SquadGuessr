@@ -2,7 +2,7 @@ import i18next from "i18next";
 import { MAPS } from "./data/maps.js";
 import { squadMinimap } from "./squadMinimap.js";
 import { guessMarker } from "./guessMarker.js";
-import { packGuesses, unpackGuesses, zipFileName, downloadZip, isWebp, webpUrl } from "./guessPack.js";
+import { newImageId, packGuesses, unpackGuesses, zipFileName, downloadZip, isWebp } from "./guessPack.js";
 import { IMAGE_SIZE, squareWebp } from "./webp.js";
 
 const REVIEW_ZOOM = 4;
@@ -11,7 +11,8 @@ const REVIEW_ZOOM = 4;
 const escapeHtml = (text) => $("<div>").text(text).html();
 
 /**
- * An accepted guess as it goes into the export: every image a 900×900 webp (the centred square), the url ending in .webp
+ * An accepted guess as it goes into the export: every image a 900×900 webp (the centred square) under a new random name,
+ * so names chosen by different submitters can neither clash nor replace a live image
  * @param {{entry: Object, image: Uint8Array}} item
  * @returns {Promise<{entry: Object, image: Uint8Array}>}
  * @throws {Error} when the image cannot be read or the browser cannot encode webp
@@ -23,15 +24,16 @@ async function toExportItem({ entry, image }) {
     } catch {
         throw new Error(`${entry.url}: not a readable image`);
     }
+    const renamed = { ...entry, url: `/img/guesses/${newImageId()}.webp` };
     // re-encoding a finished webp would only cost quality
     if (isWebp(image) && bitmap.width === IMAGE_SIZE && bitmap.height === IMAGE_SIZE) {
         bitmap.close();
-        return { entry, image };
+        return { entry: renamed, image };
     }
     const blob = await squareWebp(bitmap);
     bitmap.close();
     if (!blob) throw new Error(i18next.t("submit.errors.noWebp", { ns: "common" }));
-    return { entry: { ...entry, url: webpUrl(entry.url) }, image: new Uint8Array(await blob.arrayBuffer()) };
+    return { entry: renamed, image: new Uint8Array(await blob.arrayBuffer()) };
 }
 
 /**
@@ -45,6 +47,8 @@ export default class Review {
         this.items = [];
         this.index = 0;
         this.dirty = false;
+        // while true the decisions are frozen: the export works from the accepted list taken at its start
+        this.exporting = false;
     }
 
     init() {
@@ -124,7 +128,8 @@ export default class Review {
                 continue;
             }
             list.forEach(g => {
-                if (g.entry && this.items.some(i => i.entry?.url === g.entry.url)) {
+                // the very same guess (the same ZIP dropped twice); file names alone repeat across submitters
+                if (g.entry && this.items.some(i => i.entry && JSON.stringify(i.entry) === JSON.stringify(g.entry))) {
                     skipped++;
                     return;
                 }
@@ -207,14 +212,15 @@ export default class Review {
         const accepted = this.items.filter(i => i.status === "accepted").length;
         $("#BUTTON_REVIEW_EXPORT")
             .text(`${i18next.t("review.buttons.export", { ns: "common" })} (${accepted})`)
-            .prop("disabled", !accepted);
-        $("#BUTTON_REVIEW_CLEAR").prop("disabled", !this.items.length);
+            .prop("disabled", !accepted || this.exporting);
+        $("#BUTTON_REVIEW_CLEAR").prop("disabled", !this.items.length || this.exporting);
     }
 
     /**
      * Empties the queue and frees its images; asks first when decisions were not exported yet
      */
     clear() {
+        if (this.exporting) return;
         if (this.dirty && !confirm(i18next.t("review.confirmClear", { ns: "common" }))) return;
         this.items.forEach(item => { if (item.src) URL.revokeObjectURL(item.src); });
         this.items = [];
@@ -230,7 +236,7 @@ export default class Review {
 
     decide(status) {
         const item = this.items[this.index];
-        if (!item || item.error) return;
+        if (!item || item.error || this.exporting) return;
         item.status = status;
         this.dirty = true;
         this.show(this.nextOpen() ?? this.index);
@@ -248,8 +254,9 @@ export default class Review {
 
     async export() {
         const accepted = this.items.filter(i => i.status === "accepted");
-        if (!accepted.length) return;
-        $("#BUTTON_REVIEW_EXPORT").prop("disabled", true);
+        if (!accepted.length || this.exporting) return;
+        this.exporting = true;
+        this.renderButtons();
         try {
             const items = [];
             // one after the other: decoding every full-size screenshot at once could take a lot of memory
@@ -259,6 +266,7 @@ export default class Review {
         } catch (err) {
             this.app.openToast("error", i18next.t("review.exportFailed", { ns: "common" }), escapeHtml(err.message));
         } finally {
+            this.exporting = false;
             this.renderButtons();
         }
     }

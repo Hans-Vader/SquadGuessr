@@ -60,15 +60,6 @@ export function isWebp(bytes) {
 }
 
 /**
- * The same path with a .webp extension ("/img/guesses/a.png" → "/img/guesses/a.webp")
- * @param {string} url
- * @returns {string}
- */
-export function webpUrl(url) {
-    return `${url.replace(/\.[^./]*$/, "")}.webp`;
-}
-
-/**
  * Reads a submitted ZIP. It comes from a stranger: only known files are inflated, every entry is checked and rebuilt
  * @param {Uint8Array} bytes
  * @returns {Array<{entry: Object|null, image: Uint8Array|null, error: string|null}>}

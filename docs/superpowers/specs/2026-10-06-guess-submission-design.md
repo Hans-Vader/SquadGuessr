@@ -157,6 +157,9 @@ img/guesses/<id>.webp
 - **CANCEL** erscheint nur während einer Korrektur. Es verwirft sie und leert den Editor.
 - Ein Bild, das im Editor lag, aber noch nicht hinzugefügt war, wird beim Klick auf einen Guess ersetzt.
 - ✕ an einem Guess während einer Korrektur beendet die Korrektur zuerst.
+- Während ADD oder SAVE das WebP erzeugt, sind Klicks auf die Liste (Guess öffnen, ✕, CANCEL) gesperrt, damit der Eintrag an der richtigen Stelle landet.
+- Werden mehrere Guesses schnell nacheinander geöffnet, landet immer das Bild des zuletzt gewählten im Editor; ältere, langsamer dekodierte Bilder werden verworfen.
+- Die Map-Auswahl hat `autocomplete="off"`, damit Firefox sie nach einem Neuladen nicht ohne Change-Event wiederherstellt.
 
 ### Herunterladen
 
@@ -182,7 +185,7 @@ img/guesses/<id>.webp
 - Danach kann man weitere ZIPs auf die ganze Ansicht ziehen oder über **ADD ZIP** wählen. Die Dateiauswahl erlaubt mehrere Dateien (`multiple`, `accept=".zip"`).
 - Alle Guesses landen in einer Warteschlange, in der Reihenfolge der Dateien und der Einträge.
 - Eine Datei, die sich nicht lesen lässt, meldet ein Toast mit dem Dateinamen und dem Grund. Gemeint sind: keine ZIP, keine oder mehrere `.json`-Dateien, `.json`-Datei zu groß, kein JSON-Array. Die übrigen Dateien laden trotzdem.
-- Ein Guess, dessen `url` schon in der Warteschlange steht, wird übersprungen. Die Zahl der übersprungenen Guesses zeigt ein Toast.
+- Ein Guess, der in allen Feldern schon in der Warteschlange steht (dieselbe ZIP zweimal abgelegt), wird übersprungen. Die Zahl der übersprungenen Guesses zeigt ein Toast. Gleiche Dateinamen bei verschiedenen Guesses (etwa zwei Einreicher mit `000001.png`) sind erlaubt, weil der Export ohnehin neu benennt.
 
 ### Sichten
 
@@ -209,7 +212,9 @@ img/guesses/<id>.webp
 
 - **EXPORT (n)** ist nur aktiv, wenn mindestens ein Guess angenommen ist.
 - Der Export enthält die angenommenen Guesses in der Reihenfolge der Warteschlange.
-- Jedes Bild im Export ist ein WebP mit 900×900. Ein Bild, das das noch nicht ist (PNG, JPEG, WebP in anderer Größe), wird umgewandelt: mittiges Quadrat, skaliert auf 900×900 (auch hoch), WebP mit Qualität 0.95. Die `url` bekommt die Endung `.webp`. Ein fertiges 900×900-WebP bleibt Byte für Byte unverändert.
+- Jedes Bild im Export ist ein WebP mit 900×900. Ein Bild, das das noch nicht ist (PNG, JPEG, WebP in anderer Größe), wird umgewandelt: mittiges Quadrat, skaliert auf 900×900 (auch hoch), WebP mit Qualität 0.95. Ein fertiges 900×900-WebP bleibt Byte für Byte unverändert.
+- Jedes exportierte Bild bekommt einen neuen zufälligen Namen wie beim Einreichen (`/img/guesses/<15 Zeichen>.webp`). So können Namen verschiedener Einreicher weder kollidieren noch ein bestehendes Live-Bild ersetzen.
+- Während des Exports sind Entscheidungen, EXPORT und CLEAR gesperrt. Der Export arbeitet mit den beim Start angenommenen Guesses, danach gibt es keine offenen Änderungen mehr.
 - Die Bilder werden nacheinander umgewandelt, damit nicht alle großen Screenshots gleichzeitig im Speicher liegen.
 - Der Export bricht mit dem Toast „Export failed“ und dem Grund ab, ohne ZIP und ohne die Entscheidungen zu verlieren, wenn ein Bild sich nicht lesen lässt, der Browser kein WebP erzeugen kann (Safari) oder zwei Einträge denselben Bildpfad bekämen (z. B. `x.png` und `x.webp`).
 - Gibt es Entscheidungen, die seit dem letzten Export geändert worden sind, warnt der Browser beim Verlassen der Seite.
@@ -272,7 +277,7 @@ Das Dockerfile bleibt unverändert. Der Build kopiert ohnehin das ganze Repo, un
 - Andere Dateien in der ZIP werden ignoriert, auch `.gif`. Ein Bild über 32 MB gilt als fehlend.
 - PNG- und JPEG-Bilder (auch `.JPG`) werden gelesen.
 - `packGuesses` lehnt zwei Einträge mit demselben Bildpfad ab.
-- `isWebp` erkennt den RIFF/WEBP-Kopf, `webpUrl` tauscht die Endung gegen `.webp`.
+- `isWebp` erkennt den RIFF/WEBP-Kopf.
 - Bytes, die keine ZIP sind, eine ZIP ohne `.json`-Datei, eine mit zwei `.json`-Dateien und eine `.json`-Datei, die kein Array ist, ergeben jeweils einen Fehler mit Meldung.
 - Eine `.json`-Datei mit anderem Namen (auch `.JSON`) wird gelesen. `._`-Dateien und `__MACOSX/` zählen nicht.
 - Eine ZIP mit Kompression (Stufe 6) lässt sich lesen. Das ist der Fall, in dem macOS die ZIP entpackt und der User sie neu packt.
