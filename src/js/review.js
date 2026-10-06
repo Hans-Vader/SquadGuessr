@@ -161,7 +161,10 @@ export default class Review {
             else $thumb.text(index + 1);
             $strip.append($thumb);
         });
-        $strip.children(".current")[0]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        // scroll only the strip, centred on the current guess: scrollIntoView would also scroll the whole view down to it
+        const strip = $strip[0];
+        const current = $strip.children(".current")[0];
+        if (current) strip.scrollLeft += current.getBoundingClientRect().left - strip.getBoundingClientRect().left - (strip.clientWidth - current.offsetWidth) / 2;
 
         const accepted = this.items.filter(i => i.status === "accepted").length;
         $("#BUTTON_REVIEW_EXPORT")
