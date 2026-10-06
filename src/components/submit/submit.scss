@@ -1,0 +1,179 @@
+@use "../shared/variables";
+
+#submit {
+    height: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 1em;
+    // scroll instead of clipping under header/footer on small screens
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1em;
+    [hidden] {
+        display: none !important;
+    }
+    h1 {
+        margin-bottom: 0;
+    }
+    input,
+    select {
+        padding: 0.8em;
+        font-size: 1em;
+        background: #1a1a1a;
+        border: 2px solid #333;
+        border-radius: 12px;
+    }
+    button {
+        font-size: 1.1em;
+        padding: 14px 28px;
+    }
+}
+
+.submit-steps {
+    max-width: 700px;
+    opacity: 0.7;
+}
+
+.submit-fields {
+    display: flex;
+    gap: 1em;
+    width: min(700px, 100%);
+    > * {
+        flex: 1;
+        min-width: 0;
+    }
+}
+
+.submit-work {
+    // both boxes share one height; the image box uses it to fit the screenshot
+    --h: min(60vh, 600px);
+    display: flex;
+    flex-shrink: 0;
+    gap: 1em;
+    width: 100%;
+    > * {
+        flex: 1;
+        min-width: 0;
+        height: var(--h);
+        border-radius: 10px;
+        background: #1a1a1a;
+    }
+}
+
+#submitImage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 2px dashed #333;
+    cursor: pointer;
+    &:focus-visible {
+        outline: 2px solid variables.$mainColor;
+    }
+    .submit-hint {
+        padding: 1em;
+        opacity: 0.7;
+    }
+    // exactly the shown image: the frame's percentages refer to it
+    .submit-crop {
+        display: none;
+        position: relative;
+        width: min(100%, calc((var(--h) - 4px) * var(--ratio, 1)));
+        aspect-ratio: var(--ratio, 1);
+        overflow: hidden;
+        // dragging the square must not scroll the page on touch screens
+        touch-action: none;
+        user-select: none;
+        cursor: grab;
+    }
+    &.loaded {
+        border-style: solid;
+        cursor: default;
+        .submit-hint {
+            display: none;
+        }
+        .submit-crop {
+            display: block;
+        }
+    }
+}
+
+#submitPreview {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+#submitFrame {
+    position: absolute;
+    outline: 2px solid #fff;
+    // everything outside the square is dimmed; the crop box clips the shadow
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+}
+
+#submitMinimap {
+    z-index: 0;
+    background: #242424;
+    cursor: crosshair;
+}
+
+#submitList {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.6em;
+    li {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        padding: 0.3em;
+        border-radius: 10px;
+        background: #272727;
+    }
+    img {
+        width: 48px;
+        height: 48px;
+        border-radius: 6px;
+    }
+    button {
+        padding: 0.2em 0.6em;
+        font-size: 1em;
+        background: transparent;
+    }
+}
+
+.submit-discord {
+    opacity: 0.8;
+    a {
+        color: #aaa;
+    }
+}
+
+#BUTTON_SUBMIT {
+    // menu entry: secondary action, outlined instead of filled
+    margin-top: 20px;
+    padding: 12px 28px;
+    font-size: 1em;
+    background: transparent;
+    border: 2px solid #333;
+    &:hover {
+        background: #272727;
+    }
+}
+
+@media (width <= 768px) {
+    .submit-fields {
+        flex-direction: column;
+    }
+    .submit-work {
+        --h: 40vh;
+        flex-direction: column;
+        > * {
+            flex: none;
+        }
+    }
+}

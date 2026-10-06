@@ -8,6 +8,7 @@ import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
 import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
+import Submit from "./submit.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -37,6 +38,7 @@ export default class SquadGuessr {
         this.timerInterval = null;
         this.session = false;
         this.mp = new Multiplayer(this);
+        this.submit = new Submit(this);
     }
 
     initializeElements() {
@@ -61,6 +63,7 @@ export default class SquadGuessr {
         console.log(`SquadGuessr v${this.version} Loaded!`);
         this.switchUI("menu");
         this.mp.init();
+        this.submit.init();
     }
 
     initializeCore() {
@@ -152,6 +155,8 @@ export default class SquadGuessr {
         this.MAIN_LOGO.on("click", () => {
             this.stopTimer();
             if (this.mp.active) return this.mp.leave();
+            // coming from ?submit or ?review: a reload must land on the menu too
+            history.replaceState({}, "", "/");
             this.switchUI("menu");
         });
     }
@@ -516,30 +521,32 @@ export default class SquadGuessr {
 
     switchUI(page) {
 
+        // every page plus the footer logos: whatever a state does not show gets hidden
+        const parts = ["#menu", "#timer_ui", "#map_ui", "#results", "#lobby", "#submit", "#footerLogos"];
+
         const uiStates = {
             menu: {
                 show: ["#menu", "#footerLogos"],
-                hide: ["#map_ui", "#timer_ui", "#results", "#lobby"],
                 scoreHidden: true
             },
             timer: {
                 show: ["#timer_ui", "#footerLogos"],
-                hide: ["#menu", "#map_ui", "#results", "#lobby"],
                 scoreHidden: true
             },
             game: {
                 show: ["#map_ui"],
-                hide: ["#menu", "#timer_ui", "#results", "#footerLogos", "#lobby"],
                 scoreHidden: false
             },
             results: {
                 show: ["#results", "#footerLogos"],
-                hide: ["#map_ui", "#timer_ui", "#menu", "#lobby"],
                 scoreHidden: true
             },
             lobby: {
                 show: ["#lobby", "#footerLogos"],
-                hide: ["#map_ui", "#timer_ui", "#menu", "#results"],
+                scoreHidden: true
+            },
+            submit: {
+                show: ["#submit", "#footerLogos"],
                 scoreHidden: true
             }
         };
@@ -548,7 +555,7 @@ export default class SquadGuessr {
         if (!state) return;
 
         state.show.forEach(selector => $(selector).fadeIn(400));
-        state.hide.forEach(selector => $(selector).hide());
+        parts.filter(selector => !state.show.includes(selector)).forEach(selector => $(selector).hide());
         $("#score").prop("hidden", state.scoreHidden);
         $("#mapName").hide();
         this.stopTimer();
