@@ -22,6 +22,8 @@ export default class Submit {
         this.crop = null;
         this.previewUrl = null;
         this.file = null;
+        // counts image loads: only the latest one may land in the editor
+        this.loads = 0;
         this.drag = null;
         this.adding = false;
         this.guesses = [];
@@ -132,12 +134,16 @@ export default class Submit {
     }
 
     async loadImage(file) {
+        // clicking through the list quickly must not end with an older, slower image in the editor
+        const load = ++this.loads;
         let bitmap;
         try {
             bitmap = await createImageBitmap(file);
         } catch {
-            return this.toast("submit.errors.notImage");
+            if (load === this.loads) this.toast("submit.errors.notImage");
+            return;
         }
+        if (load !== this.loads) return bitmap.close();
         const { width, height } = bitmap;
         if (Math.min(width, height) < IMAGE_SIZE) {
             bitmap.close();
@@ -157,6 +163,8 @@ export default class Submit {
     }
 
     clearImage() {
+        // an image still decoding must not show up after this
+        this.loads++;
         this.bitmap?.close();
         this.bitmap = null;
         this.file = null;
@@ -213,8 +221,12 @@ export default class Submit {
         const entry = { map: this.map.name, mode: "easy", url, lat: lat * scale, lng: lng * scale };
         const file = this.file;
         const crop = { ...this.crop };
-        const blob = await squareWebp(this.bitmap, this.crop);
-        this.adding = false;
+        let blob;
+        try {
+            blob = await squareWebp(this.bitmap, this.crop);
+        } finally {
+            this.adding = false;
+        }
         if (!blob) {
             this.updateButtons();
             return this.toast("submit.errors.noWebp");
@@ -238,6 +250,8 @@ export default class Submit {
      * Loads a guess from the list back into the editor: map, marker, original image and its square
      */
     async edit(index) {
+        // the list stays put while a guess is being saved: its index is taken before the webp is encoded
+        if (this.adding) return;
         const g = this.guesses[index];
         this.editing = index;
         $("#submitMapSelect").val(g.entry.map);
@@ -246,10 +260,12 @@ export default class Submit {
         this.placeMarker({ lat: g.entry.lat * scale, lng: g.entry.lng * scale });
         this.renderList();
         await this.loadImage(g.file);
-        if (this.bitmap) this.moveCrop(g.crop.sx, g.crop.sy);
+        // another guess (or image) may have been chosen while this one was decoding
+        if (this.editing === index && this.file === g.file) this.moveCrop(g.crop.sx, g.crop.sy);
     }
 
     cancelEdit() {
+        if (this.adding) return;
         this.editing = null;
         this.clearImage();
         this.marker?.remove();
@@ -258,6 +274,7 @@ export default class Submit {
     }
 
     remove(index) {
+        if (this.adding) return;
         // indexes shift and the edited guess may be the one going away
         if (this.editing !== null) this.cancelEdit();
         URL.revokeObjectURL(this.guesses[index].thumb);
