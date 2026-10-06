@@ -1,4 +1,4 @@
-import { MAPS, initMapsProperties } from "./data/maps.js";
+import { MAPS, initMapsProperties, findMap } from "./data/maps.js";
 
 // base thresholds for a 3000x3000 map
 const BASE_STEPS = [
@@ -78,7 +78,7 @@ export function distance(a, b) {
 }
 
 export function mapSize(mapName) {
-    const map = MAPS.find(m => m.name.toLowerCase() === mapName.toLowerCase());
+    const map = findMap(mapName);
     if (map && map.size === undefined) initMapsProperties();
     return map?.size;
 }

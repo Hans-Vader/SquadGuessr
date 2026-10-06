@@ -565,6 +565,20 @@ if (typeof process !== "undefined" && process.argv?.[2] === "mapinfo") {
     extraInfo();
 }
 
+/**
+ * The map called `name` (any case), or undefined if this build does not know it
+ */
+export function findMap(name) {
+    return MAPS.find(m => m.name.toLowerCase() === String(name).toLowerCase());
+}
+
+/**
+ * The map image Leaflet shows; the multiplayer preloads exactly this URL
+ */
+export function basemapUrl(map) {
+    return `${map.mapURL}basemap.webp`;
+}
+
 // Compute size in meters and z-scaling from SDK data for each map
 export function initMapsProperties() {
     MAPS.forEach((map) => {

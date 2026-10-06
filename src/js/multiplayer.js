@@ -3,8 +3,13 @@ import { LatLngBounds } from "leaflet";
 import QRCode from "qrcode";
 import { guessMarker } from "./guessMarker.js";
 import { updateOffset } from "./clock.js";
+import { copyText } from "./clipboard.js";
+import Preloader from "./preloader.js";
+import { findMap, basemapUrl } from "./data/maps.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
+// NEXT / RESULTS stay locked until the server answers, or at most this long (e.g. the connection just dropped)
+const NEXT_UNLOCK_MS = 5000;
 
 /**
  * Multiplayer session client
@@ -26,6 +31,12 @@ export default class Multiplayer {
         this.qrCode = null;
         this.answered = false;
         this.countdown = null;
+        this.preloader = new Preloader();
+        // the images of the round on screen, once they had their first try: preloading the next round waits for it
+        this.visible = Promise.resolve();
+        this.nextTimer = null;
+        // the guess request of a START click that is still running, null otherwise
+        this.guessFetch = null;
     }
 
     init() {
@@ -50,9 +61,12 @@ export default class Multiplayer {
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
         $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
         $("#BUTTON_MP_START").on("click", () => this.start());
-        $("#BUTTON_MP_WATCH").on("click", () => this.watchRunning());
+        $("#BUTTON_MP_WATCH").on("click", () => this.watchCode($("#mpCode").val()));
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
+        $("#BUTTON_MP_COPY_JOIN").on("click", () => this.copyLink("#mpJoinUrl", "mp.joinLinkCopied"));
+        $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
+        $("#mpPlayers").on("click", ".mp-kick", (e) => this.send({ type: "kick", playerId: e.currentTarget.dataset.id }));
         document.addEventListener("visibilitychange", () => this.onVisible());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
@@ -103,27 +117,48 @@ export default class Multiplayer {
         this.open({ type: "join", code, name, token: localStorage.getItem(`mp:${code}`) ?? undefined });
     }
 
-    // too late to play: switch the same page to the watch view of that session
-    watchRunning() {
-        const code = this.runningCode;
+    // watch instead of playing (also offered when it is too late to play): the same page turns into the big screen
+    watchCode(rawCode) {
+        const code = String(rawCode).trim().toUpperCase();
+        if (code.length !== 4) return this.toast("warning", "mp.errors.CODE");
         $("#mpEntry").removeClass("running");
-        history.replaceState({}, "", `/?watch=${code}`);
         this.watch(code);
     }
 
     watch(code) {
-        this.watching = true;
-        $("body").addClass("watch-mode");
         this.open({ type: "watch", code: code.toUpperCase() });
     }
 
     start() {
-        const $button = $("#BUTTON_MP_START");
-        this.app.setButtonLoading($button, true);
-        this.app.getGuess(this.state.settings.rounds)
-            .then(guesses => this.send({ type: "start", guesses }))
-            .catch(() => this.toast("error", "mp.errors.GUESSES"))
-            .finally(() => this.app.setButtonLoading($button, false));
+        // spins on through the loading phase (renderStatus) until the first round starts; a lobby state that comes
+        // in while the guesses are still being fetched (someone joins) must not hand the button back
+        const fetching = this.app.getGuess(this.state.settings.rounds);
+        this.guessFetch = fetching;
+        this.app.setButtonLoading($("#BUTTON_MP_START"), true);
+        // stop() forgets the request: guesses that arrive after leaving must not start a game in another session
+        const current = () => this.guessFetch === fetching;
+        fetching
+            .then(guesses => { if (current()) this.send({ type: "start", guesses }); })
+            .catch(() => {
+                if (!current()) return;
+                this.app.setButtonLoading($("#BUTTON_MP_START"), false);
+                this.toast("error", "mp.errors.GUESSES");
+            })
+            .finally(() => { if (current()) this.guessFetch = null; });
+    }
+
+    /**
+     * NEXT / RESULTS: locked until the server answers, so a double click or a held space bar sends only one
+     */
+    next() {
+        this.app.BUTTON_NEXT.prop("disabled", true);
+        this.app.BUTTON_RESULTS.prop("disabled", true);
+        clearTimeout(this.nextTimer);
+        this.nextTimer = setTimeout(() => {
+            this.app.BUTTON_NEXT.prop("disabled", false);
+            this.app.BUTTON_RESULTS.prop("disabled", false);
+        }, NEXT_UNLOCK_MS);
+        this.send({ type: "next" });
     }
 
     // ===== CONNECTION =====
@@ -135,6 +170,8 @@ export default class Multiplayer {
         this.ws = null;
         previous?.close();
         this.hello = hello;
+        // a JOIN clicked while a watch attempt still connects makes this a player again
+        this.watching = hello.type === "watch";
         this.active = true;
         this.retry = 0;
         $("body").addClass("mp-active");
@@ -177,6 +214,15 @@ export default class Multiplayer {
         this.watching = false;
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
+        clearTimeout(this.nextTimer);
+        this.guessFetch = null;
+        // the lock ends with the game: singleplayer never unlocks RESULTS itself
+        this.app.BUTTON_NEXT.prop("disabled", false);
+        this.app.BUTTON_RESULTS.prop("disabled", false);
+        // no retries or held images beyond the game; a preload still waiting to start sees the new preloader and stops
+        this.preloader.keep([]);
+        this.preloader = new Preloader();
+        this.visible = Promise.resolve();
         this.answered = false;
         this.roundIndex = null;
         this.revealIndex = null;
@@ -217,8 +263,17 @@ export default class Multiplayer {
             history.replaceState({}, "", `/?join=${msg.code}`);
             break;
         case "state":
+            // like welcome for a player: only once the server took the code does the page turn into the big screen and
+            // the address into its link (a reload keeps watching); until then the entry form, BACK included, stays usable
+            if (this.watching && !this.state) {
+                $("body").addClass("watch-mode");
+                history.replaceState({}, "", `/?watch=${msg.code}`);
+            }
             this.state = msg;
             this.renderState();
+            break;
+        case "prepare":
+            this.onPrepare(msg);
             break;
         case "round":
             this.onRound(msg);
@@ -236,9 +291,11 @@ export default class Multiplayer {
     }
 
     onError(code) {
+        // a rejected start brings no new state, so the START spinner would stay
+        if (this.state?.phase === "lobby" && !this.guessFetch) this.app.setButtonLoading($("#BUTTON_MP_START"), false);
         if (code === "GAME_RUNNING") {
-            // no toast: the entry form now explains it and offers to watch instead
-            this.runningCode = this.hello?.code;
+            // no toast: the entry form now explains it and offers to watch instead (with the code, even after a rejoin)
+            $("#mpCode").val(this.hello?.code);
             this.stop();
             $("#mpEntry").addClass("running");
             return this.showEntry();
@@ -253,13 +310,14 @@ export default class Multiplayer {
         this.toast("error", `mp.errors.${code}`);
         // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
         if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
-        const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY"].includes(code);
+        const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY", "KICKED"].includes(code);
         if (!rejected) return;
-        // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen tab, or an invite
+        // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen link, or an invite
         // link whose form cannot fix it (dead or full session; the form only lets you change the name)
         const invite = $("#mpEntry").hasClass("invite");
-        if (this.state || this.watching || (invite && code !== "NAME_TAKEN")) return this.leave();
-        // wrong code or taken name: stay on the form to correct it
+        const watchLink = Boolean(new URLSearchParams(location.search).get("watch"));
+        if (this.state || watchLink || (invite && code !== "NAME_TAKEN")) return this.leave();
+        // wrong code (to play or to watch) or taken name: stay on the form to correct it
         // (an automatic rejoin after a reload never showed the form, hence showEntry)
         this.stop();
         this.showEntry();
@@ -287,6 +345,8 @@ export default class Multiplayer {
 
         this.renderStatus();
         if (s.phase === "lobby") this.showRoom();
+        // a page that (re)opened while everyone waits for the images: the room shows who is loading, not the menu
+        if (s.phase === "loading" && !$("#map_ui").is(":visible")) this.showRoom();
     }
 
     /**
@@ -297,10 +357,29 @@ export default class Multiplayer {
         if (!s) return;
         const host = this.isHost();
         const last = s.round + 1 === s.total;
+        const loading = s.phase === "loading";
         $("#BUTTON_MP_ENDROUND").prop("hidden", s.phase !== "round" || !host || s.settings.timer > 0);
+        // any answer from the server unlocks NEXT / RESULTS (see next())
+        clearTimeout(this.nextTimer);
         this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
         // after the last round every player may look at the results; the big screen follows the host
         this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !last || this.watching, disabled: false });
+        // the lobby stays on screen while the first round loads: the start went through, the settings are fixed
+        this.app.setButtonLoading($("#BUTTON_MP_START"), loading || Boolean(this.guessFetch));
+        $("#mpSettings select").prop("disabled", s.phase !== "lobby");
+        $("#mpWaitingForHost").prop("hidden", loading);
+        $("#mpLobbyStatus").prop("hidden", !loading);
+        if (loading) {
+            const waited = s.players.filter(p => p.connected && !p.stalled);
+            const text = i18next.t("mp.loadingImages", {
+                ns: "common",
+                ready: waited.filter(p => p.ready).length,
+                total: waited.length,
+            });
+            $("#mpStatus, #mpLobbyStatus").text(text);
+            $("#mpStatus").prop("hidden", false);
+            return;
+        }
         if (s.phase === "reveal") {
             $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", host || (last && !this.watching));
         }
@@ -316,6 +395,30 @@ export default class Multiplayer {
 
     // ===== GAME =====
 
+    /**
+     * A round is announced: the next one while this one runs, or the one everybody waits for. Its images load in
+     * the background and get reported; nothing on screen changes, so a fast device gets no head start
+     */
+    onPrepare(msg) {
+        const urls = [this.app.hintUrl(msg.url)];
+        // classic only: in Find the Map the map is the answer and never comes ahead (msg.map is null). A map this
+        // (older, cached) build does not know is left out, so the hint still preloads and ready still goes out
+        const map = msg.map && findMap(msg.map);
+        if (map) urls.push(basemapUrl(map));
+        // the round on screen keeps its images in the DOM, so only the announced ones need holding
+        this.preloader.keep(urls);
+        // the next round: low priority, and not before the images on screen had their first try
+        const low = this.state?.phase !== "loading";
+        const preloader = this.preloader;
+        this.visible
+            .then(() => preloader === this.preloader && preloader.load(urls, { low }))
+            .then((loaded) => {
+                // checked now, not when prepare came: the page may have left the game or turned into a big screen
+                if (loaded && this.active && !this.watching) this.send({ type: "ready", index: msg.index });
+            });
+    }
+
+
     onRound(msg) {
         const app = this.app;
         const me = this.state.players.find(p => p.id === this.me);
@@ -326,10 +429,11 @@ export default class Multiplayer {
 
         app.selectedMode = this.state.settings.mode;
         $("body").removeClass("mp-reveal");
+        let mapShown = Promise.resolve();
         if (!resent) {
             app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
             app.solutionMarker = null;
-            if (msg.map) app.setupMap();
+            if (msg.map) mapShown = app.setupMap();
             else app.minimap.clear();
             app.INPUT_GUESS.val("");
         }
@@ -344,7 +448,7 @@ export default class Multiplayer {
 
         app.switchUI("game");
         app.minimap.invalidateSize();
-        if (!resent) app.setupHint();
+        if (!resent) this.visible = Promise.all([mapShown, app.setupHint()]);
         this.renderStatus();
         this.startCountdown(msg.deadline);
     }
@@ -413,11 +517,14 @@ export default class Multiplayer {
         app.currentGuess = { ...solution, submitter: fresh ? null : app.currentGuess.submitter };
 
         $("#gameWrapper").removeClass("no-map");
-        if (needsMap) app.setupMap();
+        const mapShown = needsMap ? app.setupMap() : Promise.resolve();
+        let hintShown = Promise.resolve();
         if (fresh) {
             app.switchUI("game");
-            app.setupHint();
+            hintShown = app.setupHint();
         }
+        // a next round announced from now on waits for these (fresh implies needsMap)
+        if (needsMap) this.visible = Promise.all([mapShown, hintShown]);
         mm.invalidateSize();
 
         const mine = msg.results.find(r => r.id === this.me);
@@ -504,7 +611,7 @@ export default class Multiplayer {
      * the last reveal already holds the final scores, sorted
      */
     showResults() {
-        if (this.isHost()) return this.send({ type: "next" });
+        if (this.isHost()) return this.next();
         const ranking = this.lastReveal.results.map(r => ({ id: r.id, name: r.name, score: r.score }));
         const top = ranking[0]?.score;
         this.onFinal({ ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) });
@@ -512,6 +619,8 @@ export default class Multiplayer {
 
     onFinal(msg) {
         clearInterval(this.countdown);
+        // no prepare follows the last round, so its preloaded images (and their retries) would outlive the game
+        this.preloader.keep([]);
         this.renderRanking($("#mpFinalRanking"), msg.ranking, msg.winners);
         const me = msg.ranking.find(r => r.id === this.me);
         $("#scoreValue").text(me ? me.score : msg.ranking[0]?.score ?? 0);
@@ -519,18 +628,50 @@ export default class Multiplayer {
     }
 
     renderPlayers(s) {
-        const items = s.players.map(p => $("<li>")
+
+        const chip = p => $("<li>")
             .text(`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`)
+            .toggleClass("offline", !p.connected)
+            .toggleClass("me", p.id === this.me);
+        $("#mpChips").empty().append(s.players.map(chip));
+        // kicking is lobby only, so the in-game chips stay without the button
+        const kickable = s.phase === "lobby" && this.isHost();
+        $("#mpPlayers").empty().append(s.players.map(p => {
+            const $li = chip(p);
+            if (!kickable || p.id === this.me) return $li;
+            // set as an attribute, not HTML: the name must not come out escaped
+            const label = i18next.t("mp.kick", { ns: "common", name: p.name, interpolation: { escapeValue: false } });
+            return $li.append($("<button class=\"mp-kick\">✕</button>").attr({ "data-id": p.id, "aria-label": label, title: label }));
+        }));
+
+        const items = s.players.map(p => $("<li>")
+            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
             .toggleClass("me", p.id === this.me));
         $("#mpPlayers").empty().append(items);
         $("#mpChips").empty().append(items.map($li => $li.clone()));
+        // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
+        $("#mpRanking li").each((_, li) => {
+            const p = s.players.find(x => x.id === li.dataset.id);
+            // in front of the name: the ranking cuts long names off with an ellipsis, which would hide a mark behind them
+            if (p) $(li).find(".name").text([this.loadMark(s, p), p.name].filter(Boolean).join(" "));
+        });
+    }
+
+    /**
+     * While everyone waits for the images: ⏳ still loading, 💤 missed the last loading time and is not waited for
+     */
+    loadMark(s, p) {
+        if (s.phase !== "loading" || !p.connected) return "";
+        if (p.stalled) return "💤";
+        return p.ready ? "" : "⏳";
     }
 
     renderRanking($list, rows, winners = []) {
         $list.empty();
         rows.forEach((row, i) => {
             $("<li>")
+                .attr("data-id", row.id)
                 .toggleClass("me", row.id === this.me)
                 .append(
                     $("<span class=\"rank\">").text(winners.includes(row.id) ? "🏆" : `${i + 1}.`),
@@ -569,7 +710,13 @@ export default class Multiplayer {
         const url = `${location.origin}/?join=${this.code}`;
         QRCode.toCanvas(document.getElementById("mpQr"), url, { width: 220, margin: 1 });
         $("#mpJoinUrl").text(url);
-        $("#mpWatchLink").attr("href", `/?watch=${this.code}`);
+        $("#mpWatchUrl").text(`${location.origin}/?watch=${this.code}`);
+    }
+
+    copyLink(selector, key) {
+        copyText($(selector).text())
+            .then(() => this.toast("success", key))
+            .catch(err => console.error("Copy failed", err));
     }
 
     toast(type, key) {

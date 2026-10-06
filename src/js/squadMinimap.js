@@ -1,6 +1,8 @@
 import { ImageOverlay, Map, CRS, SVG, Util, LayerGroup, Popup, LatLngBounds, Browser } from "leaflet";
 import { App } from "../app.js";
 import { guessMarker } from "./guessMarker.js";
+import { basemapUrl } from "./data/maps.js";
+import { retryDelay } from "./preloader.js";
 import "./libs/leaflet-smoothWheelZoom.js";
 import "./libs/leaflet-edgebuffer.js";
 import "./libs/leaflet-spin.js";
@@ -103,41 +105,49 @@ export const squadMinimap = Map.extend({
         this.detailedZoomThreshold = ( 3 + (this.activeMap.size / 7000) ) * 0.8;
        
         // load map
-        this.changeLayer(true);
+        return this.changeLayer();
     },
 
 
     /**
-     * remove existing layer and replace it
+     * remove existing layer and replace it; resolves after the first attempt (loaded or failed).
+     * A map image that failed is retried (see retryDelay) while it is still the one on screen
+     * @param {Number} [failures] - failed attempts so far, for the retry delay
      */
-    changeLayer: function() {
+    changeLayer: function(failures = 0) {
         const OLDLAYER = this.activeLayer;
 
         // Show spinner
         this.spin(true, this.spinOptions);
 
-        let imagePath = `${this.activeMap.mapURL}basemap`;
+        const layer = new ImageOverlay(basemapUrl(this.activeMap), this.imageBounds);
+        this.activeLayer = layer;
+        layer.addTo(this.layerGroup);
+        $(layer.getElement()).css("opacity", 0);
 
-        // Use ImageOverlay for standard images
-        imagePath = `${imagePath}.webp`;
-        this.activeLayer = new ImageOverlay(imagePath, this.imageBounds);
-        this.activeLayer.addTo(this.layerGroup);
-        $(this.activeLayer.getElement()).css("opacity", 0);
-        
-        this.activeLayer.once("load", () => {
-            // Animate the opacity of the new layer
-            $(this.activeLayer.getElement()).fadeTo(700, 1, () => {
+        return new Promise((resolve) => {
+            layer.once("load", () => {
+                resolve();
+                // Animate the opacity of the new layer
+                $(layer.getElement()).fadeTo(700, 1, () => {
+                    if (OLDLAYER) OLDLAYER.remove();
+                    this.spin(false);
+                });
+            });
+
+            layer.once("error", (e) => {
+                console.error("Error loading", e.sourceTarget._url);
                 if (OLDLAYER) OLDLAYER.remove();
                 this.spin(false);
+                resolve();
+                // a newer changeLayer (next round, another map) replaces this layer and so ends the retries; a
+                // multiplayer Find the Map round hides the map and its reveal loads the map again anyway
+                setTimeout(() => {
+                    const hidden = App.mp.active && $("#gameWrapper").hasClass("no-map");
+                    if (this.activeLayer === layer && $("#map_ui").is(":visible") && !hidden) this.changeLayer(failures + 1);
+                }, retryDelay(failures + 1));
             });
         });
-
-        this.activeLayer.once("error", (e) => {
-            console.error("Error loading", e.sourceTarget._url);
-            if (OLDLAYER) OLDLAYER.remove();
-            this.spin(false);
-        });
-
     },
 
 

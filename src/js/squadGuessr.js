@@ -1,4 +1,4 @@
-import { MAPS, initMapsProperties } from "./data/maps.js";
+import { MAPS, initMapsProperties, findMap } from "./data/maps.js";
 import { squadMinimap } from "./squadMinimap.js";
 import { loadLanguage } from "../i18n/i18n.js";
 import { Polyline, LatLngBounds } from "leaflet";
@@ -8,6 +8,8 @@ import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
 import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
+import { copyText } from "./clipboard.js";
+import { retryDelay } from "./preloader.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -138,7 +140,7 @@ export default class SquadGuessr {
 
         this.BUTTON_NEWGAME.on("click", () => this.startNewGame());
         this.BUTTON_GUESS.on("click", () => this.handleGuess());
-        this.BUTTON_NEXT.on("click", () => this.mp.active ? this.mp.send({ type: "next" }) : this.loadNextGuess());
+        this.BUTTON_NEXT.on("click", () => this.mp.active ? this.mp.next() : this.loadNextGuess());
         this.BUTTON_RESULTS.on("click", () => this.mp.active ? this.mp.showResults() : this.showResults());
 
     }
@@ -163,7 +165,7 @@ export default class SquadGuessr {
         this.gameData.forEach((guess, index) => { text += `  🔸*Guess#${index + 1}: ${guess.points} points*\n`; });
         text = text + "\nThink you can beat me? Try now: https://squadguessr.app 🗺️";
 
-        navigator.clipboard.writeText(text).then(() => {
+        copyText(text).then(() => {
             let title = i18next.t("common:results.resultCopied");
             let subtext = i18next.t("common:results.shareItWithYourFriends");
             this.openToast("success", title, subtext);
@@ -307,7 +309,7 @@ export default class SquadGuessr {
     }
 
     debugChangeMap(mapName) {
-        const map = MAPS.find(m => m.name.toLowerCase() === mapName.toLowerCase());
+        const map = findMap(mapName);
         if (!map) {
             console.debug(`Map "${mapName}" not found ❌`);
             console.debug("Available maps:");
@@ -322,45 +324,63 @@ export default class SquadGuessr {
     }
 
     setupMap() {
-        const map = MAPS.find(m => m.name.toLowerCase() === this.currentGuess.map.toLowerCase());
+        const map = findMap(this.currentGuess.map);
         this.minimap.clear();
         this.minimap.activeMap = map;
-        this.minimap.draw(true);
+        return this.minimap.draw(true);
     }
 
+    /**
+     * The hint image's URL; the multiplayer preloads exactly this one
+     */
+    hintUrl(url) {
+        return `/api/v2${url}`;
+    }
+
+    /**
+     * Shows the current guess's hint image; resolves after the first attempt (loaded or failed), so a timer waiting
+     * for it always starts. A failed image is retried (see retryDelay) while this guess is still on the game screen
+     */
     setupHint() {
+        const $hint = $("#hint");
+        const $wrapper = $("#hint-wrapper");
+        const guess = this.currentGuess;
+        const url = this.hintUrl(guess.url);
+        let failures = 0;
+
+        clearTimeout(this.hintRetry);
+        // whoever still waits on the replaced hint (multiplayer preloading of the next round) must not hang forever
+        if (this.hintSettled) this.hintSettled();
+        $hint.off("load error");
+        $hint.hide();
+        $wrapper.addClass("loading");
+        $hint.attr("src", "");
+        $hint.attr("src", url);
+
+        if (guess.submitter) {
+            $("#submitter").text(i18next.t("game.hintBy", { ns: "common" }) + " " + guess.submitter);
+        }
+        else {
+            $("#submitter").text("");
+        }
 
         return new Promise((resolve) => {
-            const $hint = $("#hint");
-            $hint.off("load error");
-            $hint.hide();
-            $hint.attr("src", "");
-            $hint.attr("src", `/api/v2${this.currentGuess.url}`);
-
-            if (this.currentGuess.submitter) {
-                $("#submitter").text(i18next.t("game.hintBy", { ns: "common" }) + " " + this.currentGuess.submitter);
-            }
-            else {
-                $("#submitter").text("");
-            }
-           
-
-            // // Check if already loaded (cached)
-            // if ($hint[0].complete && $hint[0].naturalHeight !== 0) {
-            //     resolve();
-            // } else {
-
+            this.hintSettled = resolve;
             $hint.on("load", () => {
+                $wrapper.removeClass("loading");
                 $hint.fadeIn(1200);
                 resolve();
             });
 
-            //     $hint.on("error", (err) => {
-            //         console.error("Failed to load hint image", err);
-            //         resolve(); // Resolve anyway to not block the timer
-            //     });
-            // }
-
+            $hint.on("error", () => {
+                resolve();
+                this.hintRetry = setTimeout(() => {
+                    // by URL: the multiplayer reveal swaps currentGuess for a new object of the same round
+                    if (this.currentGuess?.url !== guess.url || !$("#map_ui").is(":visible")) return;
+                    $hint.attr("src", "");
+                    $hint.attr("src", url);
+                }, retryDelay(++failures));
+            });
         });
     }
 
@@ -571,6 +591,9 @@ export default class SquadGuessr {
     }
 
     setButtonLoading(button, isLoading) {
+        // a second call with the same value must not store the spinner as the button's text
+        if (Boolean(button.data("loading")) === isLoading) return;
+        button.data("loading", isLoading);
         if (isLoading) {
             button.data("original-text", button.html());
             button.prop("disabled", true);
