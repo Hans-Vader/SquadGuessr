@@ -165,6 +165,20 @@
     }
 }
 
+#submitChoice {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+    &[hidden] {
+        display: none;
+    }
+    button {
+        padding: 12px 28px;
+        font-size: 1em;
+    }
+}
+
 @media (width <= 768px) {
     .submit-fields {
         flex-direction: column;

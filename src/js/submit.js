@@ -32,7 +32,10 @@ export default class Submit {
     init() {
         MAPS.forEach(m => $("#submitMapSelect").append($("<option>").val(m.name).text(m.name)));
 
-        $("#BUTTON_SUBMIT").on("click", () => this.open());
+        // the menu entry offers submitting and reviewing; Review opens itself from its own button
+        $("#BUTTON_SUBMIT").on("click", () => $("#submitChoice").prop("hidden", (i, hidden) => !hidden));
+        $("#submitChoice button").on("click", () => $("#submitChoice").prop("hidden", true));
+        $("#BUTTON_SUBMIT_GO").on("click", () => this.open());
         $("#BUTTON_SUBMIT_BACK").on("click", () => {
             history.replaceState({}, "", "/");
             this.app.switchUI("menu");
@@ -60,6 +63,9 @@ export default class Submit {
             // older browsers only ask when returnValue is set
             e.returnValue = true;
         });
+        // labels written here (DOWNLOAD count, ✕) are not covered by data-i18n
+        i18next.on("languageChanged", () => this.renderList());
+        this.updateButtons();
 
         if (new URLSearchParams(location.search).has("submit")) this.open();
     }

@@ -5,7 +5,7 @@
 - Added a big-screen view (`?watch=CODE`) for projectors/TVs
 - Added Docker Compose hosting (frontend + multiplayer server)
 - Added "Submit a guess": paste a screenshot, choose its square, click where it was taken and download a ZIP to post on Discord
-- Added a review page (`?review`) to check submitted ZIPs and export the accepted guesses
+- Added a review page (menu SUBMIT A GUESS → REVIEW, or `?review`) to check submitted ZIPs and export the accepted guesses
 
 </br></br><!-- CHANGELOG SPLIT MARKER -->
 

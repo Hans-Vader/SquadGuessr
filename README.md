@@ -21,7 +21,7 @@
 1. Take your screenshot ingame (go into "screenshot mode" by clicking the eye icon at bottom of screen in main menu to remove compass, and Shift+P ingame for free camera). Its shorter side must be **at least 900px**. Please consider taking your screenshots at quite high graphics settings for best UX on squadguessr.
 Using a screenshot tool like [GreenShot](https://getgreenshot.org/)/[ShareX](https://getsharex.com/) helps a lot.
 
-2. Open SquadGuessr and click **SUBMIT A GUESS** in the menu (or go to `/?submit`).
+2. Open SquadGuessr, click **SUBMIT A GUESS** in the menu and then **SUBMIT** (or go to `/?submit`).
 
 3. Choose the map, paste your screenshot with Ctrl+V (or drop/choose the file), drag the square onto the part you want to show and click on the map where the screenshot was taken. Click **ADD** and repeat for more screenshots.
 
@@ -31,7 +31,7 @@ Using a screenshot tool like [GreenShot](https://getgreenshot.org/)/[ShareX](htt
 
 ## Reviewing submissions
 
-Open `/?review`, drop the ZIPs from Discord onto the page and accept (`A`) or reject (`D`) every guess. **EXPORT** downloads one ZIP with the accepted guesses: `guesses.json` and the 900×900 images under `img/guesses/`. Every entry looks like this:
+Click **SUBMIT A GUESS** → **REVIEW** in the menu (or go to `/?review`), drop the ZIPs from Discord onto the page and accept (`A`) or reject (`D`) every guess. **EXPORT** downloads one ZIP with the accepted guesses: `guesses.json` and the 900×900 images under `img/guesses/`. Every entry looks like this:
 
 ```json
 {

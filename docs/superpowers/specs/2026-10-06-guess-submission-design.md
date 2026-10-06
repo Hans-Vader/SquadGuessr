@@ -52,8 +52,8 @@ Alles läuft im Browser. Es gibt keinen Server-Speicher und keinen Login.
 |---|---|
 | Wo landet ein angenommener Guess? | In einer Export-ZIP für den Maintainer. Im Spiel ändert sich nichts |
 | Umsetzung | Zwei neue Ansichten in der bestehenden App, kein zweiter Webpack-Entry |
-| Einstieg Einreichen | Button „SUBMIT A GUESS“ im Menü und `/?submit` |
-| Einstieg Review | Nur `/?review`, nirgends verlinkt, kein Login |
+| Einstieg Einreichen | Button „SUBMIT A GUESS“ im Menü, darunter Auswahl SUBMIT, und `/?submit` |
+| Einstieg Review | Dieselbe Auswahl im Menü (REVIEW) und `/?review`, kein Login |
 | ZIP-Bibliothek | `fflate` (devDependency wie alle Frontend-Bibliotheken) |
 | Bild | Quadrat wählbar, 900×900, WebP mit Qualität 0.85 |
 | Menge | Beliebig viele Guesses pro ZIP |
@@ -102,7 +102,8 @@ img/guesses/<id>.webp
 ### Einstieg
 
 - Unter den beiden Spiel-Buttons im Menü steht ein schlichter, umrandeter Button **SUBMIT A GUESS**.
-- Ein Klick darauf öffnet die Ansicht und setzt die URL auf `/?submit`. Neu laden öffnet also wieder die Ansicht.
+- Ein Klick darauf klappt darunter die Auswahl **SUBMIT** und **REVIEW** auf (ein weiterer Klick klappt sie wieder zu).
+- **SUBMIT** öffnet die Ansicht und setzt die URL auf `/?submit`. Neu laden öffnet also wieder die Ansicht.
 - **BACK** führt ins Menü und setzt die URL auf `/` zurück. Die gesammelten Guesses bleiben im Speicher. Wer wiederkommt, findet die Liste unverändert vor.
 
 ### Aufbau
@@ -162,8 +163,8 @@ img/guesses/<id>.webp
 
 ### Einstieg
 
-- Nur über `/?review`. Die Seite hat keinen Link im Menü.
-- **BACK** führt ins Menü und setzt die URL auf `/`.
+- Über **SUBMIT A GUESS** → **REVIEW** im Menü oder direkt über `/?review`. Die URL wird auf `/?review` gesetzt.
+- **BACK** führt ins Menü und setzt die URL auf `/`. Die Warteschlange samt Entscheidungen bleibt im Speicher. Über REVIEW geht es an derselben Stelle weiter.
 
 ### ZIPs laden
 
@@ -200,6 +201,7 @@ Die ZIPs kommen von Fremden. Sie sind eine Vertrauensgrenze.
 
 1. **Entpacken:**
    - `unzipSync(bytes, { filter })` entpackt nur `guesses.json` mit `originalSize` ≤ 1 MB und Dateien unter `img/guesses/` mit der Endung `.webp` und `originalSize` ≤ 2 MB.
+   - Beides darf zusätzlich in genau einem Ordner liegen (`squadguessr-Dan-2026-10-06/guesses.json`). So sieht eine ZIP aus, deren entpackter Ordner neu komprimiert wurde. Gilt die `guesses.json` auf oberster Ebene, sonst die im Ordner; die Bilder werden neben ihr gesucht.
    - Alles andere wird gar nicht erst entpackt.
    - Wirft `unzipSync`, ist die ganze Datei unlesbar.
 2. **`guesses.json`:**
@@ -249,6 +251,7 @@ Das Dockerfile bleibt unverändert. Der Build kopiert ohnehin das ganze Repo, un
 - Andere Dateien in der ZIP werden ignoriert. Ein Bild über 2 MB gilt als fehlend.
 - Bytes, die keine ZIP sind, eine ZIP ohne `guesses.json` und eine `guesses.json`, die kein Array ist, ergeben jeweils einen Fehler mit Meldung.
 - Eine ZIP mit Kompression (Stufe 6) lässt sich lesen. Das ist der Fall, in dem macOS die ZIP entpackt und der User sie neu packt.
+- Eine ZIP, deren Dateien in einem Ordner liegen (neu komprimierter Ordner, samt `__MACOSX/`-Einträgen), lässt sich lesen.
 - `newImageId` liefert 15 Zeichen aus `[A-Za-z0-9]`.
 - `zipFileName` reduziert den Namen und nutzt `anonymous` als Ersatz.
 

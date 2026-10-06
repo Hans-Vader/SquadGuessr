@@ -25,6 +25,7 @@ export default class Review {
     init() {
         const $view = $("#review");
 
+        $("#BUTTON_REVIEW_GO").on("click", () => this.open());
         $("#BUTTON_REVIEW_BACK").on("click", () => {
             history.replaceState({}, "", "/");
             this.app.switchUI("menu");
@@ -63,11 +64,16 @@ export default class Review {
             // older browsers only ask when returnValue is set
             e.returnValue = true;
         });
+        // the EXPORT count is not covered by data-i18n
+        i18next.on("languageChanged", () => this.renderExport());
+        this.renderExport();
 
         if (new URLSearchParams(location.search).has("review")) this.open();
     }
 
     open() {
+        history.replaceState({}, "", "/?review");
+        // the queue stays in memory: coming back from the menu continues where the admin left off
         this.app.switchUI("review");
         if (!this.minimap) {
             this.minimap = new squadMinimap("reviewMinimap", this.app.MAPSIZE, MAPS[0]);
@@ -75,6 +81,8 @@ export default class Review {
             this.minimap._handleclick = () => {};
             this.minimap._handleDoubleClick = () => {};
         }
+        // the window may have changed size while the view was hidden
+        this.minimap.invalidateSize();
     }
 
     async addFiles(files) {
@@ -165,7 +173,10 @@ export default class Review {
         const strip = $strip[0];
         const current = $strip.children(".current")[0];
         if (current) strip.scrollLeft += current.getBoundingClientRect().left - strip.getBoundingClientRect().left - (strip.clientWidth - current.offsetWidth) / 2;
+        this.renderExport();
+    }
 
+    renderExport() {
         const accepted = this.items.filter(i => i.status === "accepted").length;
         $("#BUTTON_REVIEW_EXPORT")
             .text(`${i18next.t("review.buttons.export", { ns: "common" })} (${accepted})`)
