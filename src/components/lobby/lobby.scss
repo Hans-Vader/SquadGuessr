@@ -59,11 +59,25 @@
     #mpWatchLink {
         color: #aaa;
     }
-    // a ready guest's button turns green and gets a tick
-    #BUTTON_MP_READY[aria-pressed="true"] {
+    // READY is green, and START once every guest is ready (grey while locked: alone, or loading the guesses)
+    #BUTTON_MP_READY,
+    #BUTTON_MP_START.all-ready:not(:disabled) {
         background: variables.$newColor;
-        &::before {
-            content: "✓ ";
+        &:hover {
+            background: variables.$newColorLight;
+        }
+    }
+    // READY gets a tick once the guest is ready
+    #BUTTON_MP_READY[aria-pressed="true"]::before {
+        content: "✓ ";
+    }
+    // secondary actions: outlined instead of filled
+    #BUTTON_MP_BACK,
+    #BUTTON_MP_LEAVE {
+        background: transparent;
+        border: 2px solid #333;
+        &:hover {
+            background: #272727;
         }
     }
     // the start countdown: what everyone in the room looks at
@@ -107,6 +121,10 @@
         }
         &.offline {
             opacity: 0.4;
+        }
+        // a ready guest's name turns green like their READY button
+        &.ready {
+            background: variables.$newColor;
         }
     }
 }
@@ -392,13 +410,7 @@ body.watch-mode.mp-reveal {
             flex: 1;
         }
     }
-    // secondary action: outlined instead of filled
     #BUTTON_MP_BACK {
         margin-top: 0.6em;
-        background: transparent;
-        border: 2px solid #333;
-        &:hover {
-            background: #272727;
-        }
     }
 }

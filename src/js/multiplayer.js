@@ -150,7 +150,9 @@ export default class Multiplayer {
             .then(guesses => { if (current()) this.send({ type: "start", guesses }); })
             .catch(() => {
                 if (!current()) return;
-                this.app.setButtonLoading($("#BUTTON_MP_START"), false);
+                // from the state, not just the spinner off: the last guest may have left while the guesses loaded
+                this.guessFetch = null;
+                this.renderLobbyButtons(this.state, false);
                 this.toast("error", "mp.errors.GUESSES");
             })
             .finally(() => { if (current()) this.guessFetch = null; });
@@ -296,7 +298,7 @@ export default class Multiplayer {
 
     onError(code) {
         // a rejected start brings no new state, so the START spinner would stay
-        if (this.state?.phase === "lobby" && !this.guessFetch) this.app.setButtonLoading($("#BUTTON_MP_START"), false);
+        if (this.state?.phase === "lobby" && !this.guessFetch) this.renderLobbyButtons(this.state, false);
         if (code === "GAME_RUNNING") {
             // no toast: the entry form now explains it and offers to watch instead
             this.runningCode = this.hello?.code;
@@ -396,7 +398,7 @@ export default class Multiplayer {
     }
 
     /**
-     * READY for guests, START / START ANYWAY and CANCEL for the host
+     * READY for guests, START and CANCEL for the host
      */
     renderLobbyButtons(s, starting) {
         const me = s.players.find(p => p.id === this.me);
@@ -404,13 +406,12 @@ export default class Multiplayer {
         const $start = $("#BUTTON_MP_START");
         this.app.setButtonLoading($start, Boolean(this.guessFetch));
         $start.prop("hidden", starting);
-        // not while it spins: setButtonLoading puts back the text it saved when the spinning began
+        // always START, so the buttons keep their places; not while it spins, the spinner keeps it locked
         if (!this.guessFetch) {
-            // the server's rule (Session.allReady): every connected guest is ready, the host's START is their ready
-            const allReady = s.players.every(p => !p.connected || p.id === s.hostId || p.lobbyReady);
-            const key = allReady ? "mp.buttons.start" : "mp.buttons.forceStart";
-            // through data-i18n, so a language switch keeps the right label
-            $start.attr("data-i18n", `common:${key}`).text(i18next.t(key, { ns: "common" }));
+            $start.prop("disabled", !s.canStart).toggleClass("all-ready", s.allReady);
+            // through data-i18n-title, so a language switch keeps the tooltip
+            if (s.canStart) $start.removeAttr("title data-i18n-title");
+            else $start.attr({ "data-i18n-title": "common:mp.needPlayers", title: i18next.t("mp.needPlayers", { ns: "common" }) });
         }
         $("#BUTTON_MP_CANCEL").prop("hidden", !starting);
         // a clicked CANCEL stays locked until the start is off or round 1 runs
@@ -657,6 +658,7 @@ export default class Multiplayer {
         const items = s.players.map(p => $("<li>")
             .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
+            .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
             .toggleClass("me", p.id === this.me));
         $("#mpPlayers").empty().append(items);
         $("#mpChips").empty().append(items.map($li => $li.clone()));
