@@ -114,7 +114,7 @@ img/guesses/<id>.webp
 
 ### Map
 
-- Ohne gewählte Map zeigt die Minimap die erste Map aus `MAPS` und nimmt keine Klicks an.
+- Ohne gewählte Map bleibt die Minimap leer und nimmt keine Klicks an.
 - Ein Wechsel der Map lädt die Karte neu und entfernt den Marker, weil die alten Koordinaten nicht zur neuen Map passen.
 
 ### Bild
@@ -180,13 +180,13 @@ img/guesses/<id>.webp
 - Darüber stehen Map, Einreicher (oder „—“), ZIP-Name und der Fortschritt „3 / 23“.
 - **ACCEPT** (`A`) und **REJECT** (`D`) entscheiden. Nach einer Entscheidung springt die Ansicht zum nächsten offenen Guess hinter dem aktuellen, sonst zum ersten offenen. Gibt es keinen offenen mehr, bleibt sie stehen.
 - `←`/`→` blättern.
-- Unten zeigt eine Leiste aus Vorschaubildern den Status jedes Guess: offen, angenommen (grün), abgelehnt (rot), ungültig (durchgestrichen). Ein Klick springt dorthin. Jede Entscheidung lässt sich jederzeit ändern.
+- Unten zeigt eine Leiste aus Vorschaubildern den Status jedes Guess: offen, angenommen (grüner Rand), abgelehnt (roter Rand, blass), ungültig (sehr blass). Ein Klick springt dorthin. Jede Entscheidung lässt sich jederzeit ändern.
 
 ### Ungültige Einträge
 
-- Sie erscheinen in der Leiste und lassen sich anzeigen, aber nicht annehmen. Statt der Buttons steht dort der Grund.
-- Fehlt das Bild, zeigt die Ansicht statt des Bildes den Grund.
-- Fehlt eine gültige Map oder gültige Koordinaten, zeigt die Karte keinen Marker und bleibt auf der zuletzt geladenen Map.
+- Sie erscheinen in der Leiste und lassen sich anzeigen, aber nicht annehmen. Statt ACCEPT/REJECT steht dort der Grund.
+- Liegt ihr Bild in der ZIP, wird es angezeigt. Sonst bleibt der Bildbereich leer.
+- Map und Einreicher zeigen „—“. Die Karte zeigt keinen Marker und bleibt auf der zuletzt geladenen Map.
 
 ### Export
 
@@ -208,7 +208,8 @@ Die ZIPs kommen von Fremden. Sie sind eine Vertrauensgrenze.
    - Er muss ein Objekt sein und `validGuess` bestehen: bekannte Map ohne Rücksicht auf Groß- und Kleinschreibung, sicherer `url`-Pfad unter `/img/`, endliche `lat`/`lng`, `submitter` fehlt oder ist ein String mit höchstens 40 Zeichen.
    - `mode` muss `"easy"` oder `"hard"` sein.
    - Unter `url` ohne führenden `/` muss ein entpacktes Bild liegen.
-   - Der erste verletzte Punkt wird der Grund für „ungültig“.
+   - Der Grund für „ungültig“ ist der erste verletzte Punkt: `invalid data` (`validGuess` schlägt fehl), `invalid mode` oder `image missing`.
+   - Das Bild eines ungültigen Eintrags wird nur über einen eigenen Schlüssel der entpackten Dateien gesucht (`Object.hasOwn`), damit eine `url` wie `/__proto__` nicht `Object.prototype` liefert.
 4. **Neu aufbauen:** Ein gültiger Eintrag wird aus genau `map`, `mode`, `url`, `lat`, `lng` und gegebenenfalls `submitter` neu zusammengesetzt. Fremde Felder kommen nie in den Export.
 
 ### Anzeige
