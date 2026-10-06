@@ -95,11 +95,14 @@
         "discordHint": "请将 ZIP 文件上传到以下平台的建议频道：",
         "remove": "删除",
         "removeImage": "移除图片",
+        "edit": "编辑",
         "choice": {
             "submit": "提交",
             "review": "审核"
         },
         "buttons": {
+            "save": "保存",
+            "cancel": "取消",
             "add": "添加",
             "download": "下载 ZIP"
         },

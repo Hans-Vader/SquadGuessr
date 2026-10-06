@@ -153,8 +153,18 @@
         align-items: center;
         gap: 0.5em;
         padding: 0.3em;
+        border: 2px solid transparent;
         border-radius: 10px;
         background: #272727;
+        &.editing {
+            border-color: variables.$mainColor;
+        }
+    }
+    .submit-edit {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        padding: 0;
     }
     img {
         width: 48px;

@@ -147,7 +147,16 @@ img/guesses/<id>.webp
 - Der Eintrag kommt in die Liste:
   - Vorschaubild, Map-Name und ✕ zum Entfernen.
   - Danach werden Bild und Marker zurückgesetzt. Map und Name bleiben.
-  - Im Speicher bleiben nur der WebP-Blob und der Eintrag, nicht das Originalbild.
+  - Im Speicher bleiben der WebP-Blob, der Eintrag, das Originalbild und das gewählte Quadrat, damit sich der Guess später korrigieren lässt.
+
+### Korrigieren
+
+- Ein Klick auf Vorschaubild oder Map-Namen eines Guess in der Liste lädt ihn zurück in den Editor: Map, Marker an der gespeicherten Stelle, Originalbild mit dem damals gewählten Quadrat. Der Eintrag bekommt einen blauen Rand.
+- Dann lassen sich Marker, Map, Quadrat und Bild ändern wie beim Erfassen. Ein Map-Wechsel entfernt den Marker.
+- **ADD** heißt dann **SAVE** und überschreibt den Eintrag an seiner Stelle in der Liste. `url` (also die Bild-ID) bleibt gleich.
+- **CANCEL** erscheint nur während einer Korrektur. Es verwirft sie und leert den Editor.
+- Ein Bild, das im Editor lag, aber noch nicht hinzugefügt war, wird beim Klick auf einen Guess ersetzt.
+- ✕ an einem Guess während einer Korrektur beendet die Korrektur zuerst.
 
 ### Herunterladen
 

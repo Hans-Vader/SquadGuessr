@@ -95,11 +95,14 @@
         "discordHint": "Upload the ZIP in the suggestions channel on",
         "remove": "Remove",
         "removeImage": "Remove image",
+        "edit": "Edit",
         "choice": {
             "submit": "SUBMIT",
             "review": "REVIEW"
         },
         "buttons": {
+            "save": "SAVE",
+            "cancel": "CANCEL",
             "add": "ADD",
             "download": "DOWNLOAD ZIP"
         },

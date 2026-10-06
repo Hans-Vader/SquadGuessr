@@ -23,7 +23,7 @@ Using a screenshot tool like [GreenShot](https://getgreenshot.org/)/[ShareX](htt
 
 2. Open SquadGuessr, click **SUBMIT A GUESS** in the menu and then **SUBMIT** (or go to `/?submit`).
 
-3. Choose the map, paste your screenshot with Ctrl+V (or drop/choose the file), drag the square onto the part you want to show and click on the map where the screenshot was taken. Click **ADD** and repeat for more screenshots.
+3. Choose the map, paste your screenshot with Ctrl+V (or drop/choose the file), drag the square onto the part you want to show and click on the map where the screenshot was taken. Click **ADD** and repeat for more screenshots. Click a guess in the list to correct it, then **SAVE**.
 
 4. Click **DOWNLOAD ZIP** and upload the ZIP on [Discord](https://discord.gg/BNPAc5kEJP) (suggestion channel).
 

@@ -21,9 +21,12 @@ export default class Submit {
         this.bitmap = null;
         this.crop = null;
         this.previewUrl = null;
+        this.file = null;
         this.drag = null;
         this.adding = false;
         this.guesses = [];
+        // index of the guess being corrected, null while a new one is prepared
+        this.editing = null;
         this.dirty = false;
     }
 
@@ -40,6 +43,7 @@ export default class Submit {
         });
         $("#submitMapSelect").on("change", (e) => this.selectMap(e.target.value));
         $("#BUTTON_SUBMIT_ADD").on("click", () => this.add());
+        $("#BUTTON_SUBMIT_CANCEL").on("click", () => this.cancelEdit());
         $("#BUTTON_SUBMIT_DOWNLOAD").on("click", () => this.download());
         $("#submitFile").on("change", (e) => {
             if (e.target.files[0]) this.loadImage(e.target.files[0]);
@@ -141,6 +145,8 @@ export default class Submit {
         }
         this.clearImage();
         this.bitmap = bitmap;
+        // kept with the guess so its square can be changed later
+        this.file = file;
         this.crop = centredSquare(bitmap);
         this.previewUrl = URL.createObjectURL(file);
         $("#submitPreview").attr("src", this.previewUrl);
@@ -153,6 +159,7 @@ export default class Submit {
     clearImage() {
         this.bitmap?.close();
         this.bitmap = null;
+        this.file = null;
         this.drag = null;
         if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
         this.previewUrl = null;
@@ -200,15 +207,26 @@ export default class Submit {
         // read everything before the await: the map, the marker or the image may change while the webp is encoded
         const { lat, lng } = this.marker.getLatLng();
         const scale = this.minimap.mapToGameScale;
-        // the same numbers the debug helper logLatLng prints for this spot
-        const entry = { map: this.map.name, mode: "easy", url: `/img/guesses/${newImageId()}.webp`, lat: lat * scale, lng: lng * scale };
+        const editing = this.editing;
+        // a corrected guess keeps its image name; the same numbers the debug helper logLatLng prints for this spot
+        const url = editing === null ? `/img/guesses/${newImageId()}.webp` : this.guesses[editing].entry.url;
+        const entry = { map: this.map.name, mode: "easy", url, lat: lat * scale, lng: lng * scale };
+        const file = this.file;
+        const crop = { ...this.crop };
         const blob = await squareWebp(this.bitmap, this.crop);
         this.adding = false;
         if (!blob) {
             this.updateButtons();
             return this.toast("submit.errors.noWebp");
         }
-        this.guesses.push({ entry, blob, thumb: URL.createObjectURL(blob) });
+        const guess = { entry, blob, thumb: URL.createObjectURL(blob), file, crop };
+        if (editing === null) {
+            this.guesses.push(guess);
+        } else {
+            URL.revokeObjectURL(this.guesses[editing].thumb);
+            this.guesses[editing] = guess;
+            this.editing = null;
+        }
         this.dirty = true;
         this.clearImage();
         this.marker?.remove();
@@ -216,7 +234,32 @@ export default class Submit {
         this.renderList();
     }
 
+    /**
+     * Loads a guess from the list back into the editor: map, marker, original image and its square
+     */
+    async edit(index) {
+        const g = this.guesses[index];
+        this.editing = index;
+        $("#submitMapSelect").val(g.entry.map);
+        this.selectMap(g.entry.map);
+        const scale = this.minimap.gameToMapScale;
+        this.placeMarker({ lat: g.entry.lat * scale, lng: g.entry.lng * scale });
+        this.renderList();
+        await this.loadImage(g.file);
+        if (this.bitmap) this.moveCrop(g.crop.sx, g.crop.sy);
+    }
+
+    cancelEdit() {
+        this.editing = null;
+        this.clearImage();
+        this.marker?.remove();
+        this.marker = null;
+        this.renderList();
+    }
+
     remove(index) {
+        // indexes shift and the edited guess may be the one going away
+        if (this.editing !== null) this.cancelEdit();
         URL.revokeObjectURL(this.guesses[index].thumb);
         this.guesses.splice(index, 1);
         this.dirty = true;
@@ -226,9 +269,11 @@ export default class Submit {
     renderList() {
         const $list = $("#submitList").empty();
         this.guesses.forEach((g, index) => {
-            $("<li>").append(
-                $("<img>").attr({ src: g.thumb, alt: "" }),
-                $("<span>").text(g.entry.map),
+            $("<li>").toggleClass("editing", index === this.editing).append(
+                $("<button>").addClass("submit-edit").attr("title", i18next.t("submit.edit", { ns: "common" })).append(
+                    $("<img>").attr({ src: g.thumb, alt: "" }),
+                    $("<span>").text(g.entry.map),
+                ).on("click", () => this.edit(index)),
                 $("<button>").attr("aria-label", i18next.t("submit.remove", { ns: "common" })).text("✕").on("click", () => this.remove(index)),
             ).appendTo($list);
         });
@@ -236,7 +281,11 @@ export default class Submit {
     }
 
     updateButtons() {
-        $("#BUTTON_SUBMIT_ADD").prop("disabled", this.adding || !(this.map && this.bitmap && this.marker));
+        const editing = this.editing !== null;
+        $("#BUTTON_SUBMIT_ADD")
+            .text(i18next.t(editing ? "submit.buttons.save" : "submit.buttons.add", { ns: "common" }))
+            .prop("disabled", this.adding || !(this.map && this.bitmap && this.marker));
+        $("#BUTTON_SUBMIT_CANCEL").prop("hidden", !editing);
         $("#BUTTON_SUBMIT_DOWNLOAD")
             .text(`${i18next.t("submit.buttons.download", { ns: "common" })} (${this.guesses.length})`)
             .prop("disabled", !this.guesses.length);
