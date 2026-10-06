@@ -1,5 +1,5 @@
 import i18next from "i18next";
-import { MAPS } from "./data/maps.js";
+import { MAPS, findMap } from "./data/maps.js";
 import { squadMinimap } from "./squadMinimap.js";
 import { guessMarker } from "./guessMarker.js";
 import { newImageId, packGuesses, zipFileName, downloadZip } from "./guessPack.js";
@@ -189,7 +189,7 @@ export default class Submit {
     }
 
     selectMap(name) {
-        this.map = MAPS.find(m => m.name === name) ?? null;
+        this.map = findMap(name) ?? null;
         // the old marker's coordinates mean nothing on another map
         this.minimap.clear();
         this.marker = null;

@@ -1,6 +1,6 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
 import { validGuess } from "../../server/validate.js";
-import { MAPS } from "./data/maps.js";
+import { findMap } from "./data/maps.js";
 
 const ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const MODES = ["easy", "hard"];
@@ -114,7 +114,7 @@ export function unpackGuesses(bytes) {
         else if (!image) error = "image missing";
         if (error) return { entry: null, image, error };
         // the game ignores case, but the map list's spelling is what the submit tool writes and the reveal shows
-        const map = MAPS.find(m => m.name.toLowerCase() === g.map.toLowerCase()).name;
+        const map = findMap(g.map).name;
         return { entry: toEntry({ ...g, map }), image, error };
     });
 }

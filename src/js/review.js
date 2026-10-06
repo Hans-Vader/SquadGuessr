@@ -1,5 +1,5 @@
 import i18next from "i18next";
-import { MAPS } from "./data/maps.js";
+import { MAPS, findMap } from "./data/maps.js";
 import { squadMinimap } from "./squadMinimap.js";
 import { guessMarker } from "./guessMarker.js";
 import { newImageId, packGuesses, unpackGuesses, zipFileName, downloadZip, isWebp } from "./guessPack.js";
@@ -183,7 +183,7 @@ export default class Review {
         this.minimap.invalidateSize();
         this.minimap.markersGroup.clearLayers();
         if (!entry) return;
-        const map = MAPS.find(m => m.name.toLowerCase() === entry.map.toLowerCase());
+        const map = findMap(entry.map);
         if (map !== this.drawnMap) {
             this.minimap.activeMap = map;
             this.minimap.draw();
