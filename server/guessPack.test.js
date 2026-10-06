@@ -2,11 +2,37 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
-import { newImageId, packGuesses, unpackGuesses, zipFileName, isWebp, MAX_IMAGE } from "../src/js/guessPack.js";
+import { newImageId, packGuesses, unpackGuesses, zipFileName, isWebp, MAX_IMAGE, MAX_TOTAL } from "../src/js/guessPack.js";
 
 const IMG = new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]);
 const URL_A = "/img/guesses/abcDEF123456789.webp";
 const entry = (over = {}) => ({ map: "Sanxian", mode: "easy", url: URL_A, lat: -1166.9828731644454, lng: 859.1661270331499, ...over });
+
+// what a hand-crafted ZIP can do: claim any unpacked size for an entry in its central directory
+function declareSize(bytes, name, size) {
+    const out = bytes.slice();
+    const view = new DataView(out.buffer);
+    for (let o = 0; o + 46 <= out.length; o++) {
+        if (view.getUint32(o, true) !== 0x02014b50) continue;
+        const length = view.getUint16(o + 28, true);
+        if (strFromU8(out.subarray(o + 46, o + 46 + length)) === name) view.setUint32(o + 24, size, true);
+    }
+    return out;
+}
+
+// breaks the compressed data of one entry, so inflating it throws
+function corrupt(bytes, name) {
+    const out = bytes.slice();
+    const view = new DataView(out.buffer);
+    for (let o = 0; o + 30 <= out.length; o++) {
+        if (view.getUint32(o, true) !== 0x04034b50) continue;
+        const length = view.getUint16(o + 26, true);
+        if (strFromU8(out.subarray(o + 30, o + 30 + length)) !== name) continue;
+        // 0xff starts a deflate block of the reserved type 3
+        out[o + 30 + length + view.getUint16(o + 28, true)] = 0xff;
+    }
+    return out;
+}
 
 // a ZIP as someone else's tool (or a hand-edited one) would build it
 const zipOf = (list, images = { [URL_A.slice(1)]: IMG }, level = 0) =>
@@ -131,4 +157,34 @@ test("unpackGuesses takes the .json file whatever it is called and ignores the f
         "__MACOSX/._my guesses.JSON": IMG,
     });
     assert.deepEqual(unpackGuesses(bytes), [{ entry: entry(), image: IMG, error: null }]);
+});
+
+test("unpackGuesses never inflates images no guess refers to", () => {
+    const bytes = corrupt(zipSync({
+        "g.json": strToU8(JSON.stringify([entry()])),
+        [URL_A.slice(1)]: [IMG, { level: 0 }],
+        "img/guesses/unused.webp": [new Uint8Array(1000), { level: 6 }],
+    }), "img/guesses/unused.webp");
+    assert.deepEqual(unpackGuesses(bytes), [{ entry: entry(), image: IMG, error: null }]);
+});
+
+test("unpackGuesses checks the real size of a stored image, not only the declared one", () => {
+    const liar = "img/guesses/liar.webp";
+    const bytes = declareSize(zipOf([entry({ url: `/${liar}` })], { [liar]: new Uint8Array(MAX_IMAGE + 1) }), liar, 10);
+    assert.deepEqual(unpackGuesses(bytes).map(i => i.error), ["image missing"]);
+});
+
+test("unpackGuesses rejects a ZIP whose images would unpack to more than MAX_TOTAL", () => {
+    const urls = Array.from({ length: Math.floor(MAX_TOTAL / MAX_IMAGE) + 1 }, (_, i) => `/img/guesses/big${i}.webp`);
+    let bytes = zipOf(urls.map(url => entry({ url })), Object.fromEntries(urls.map(u => [u.slice(1), IMG])));
+    urls.forEach(u => { bytes = declareSize(bytes, u.slice(1), MAX_IMAGE); });
+    assert.throws(() => unpackGuesses(bytes), /too large/);
+});
+
+test("unpackGuesses writes the map name the way the map list spells it", () => {
+    const items = unpackGuesses(zipOf(
+        [entry({ map: "tallil" }), entry({ map: "ALBASRAH", url: "/img/guesses/b.webp" })],
+        { [URL_A.slice(1)]: IMG, "img/guesses/b.webp": IMG },
+    ));
+    assert.deepEqual(items.map(i => i.entry.map), ["Tallil", "AlBasrah"]);
 });
