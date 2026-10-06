@@ -615,7 +615,7 @@ export default class Multiplayer {
     renderPlayers(s) {
 
         const chip = p => $("<li>")
-            .text(`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`)
+            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
             .toggleClass("me", p.id === this.me);
         $("#mpChips").empty().append(s.players.map(chip));
@@ -628,13 +628,6 @@ export default class Multiplayer {
             const label = i18next.t("mp.kick", { ns: "common", name: p.name, interpolation: { escapeValue: false } });
             return $li.append($("<button class=\"mp-kick\">✕</button>").attr({ "data-id": p.id, "aria-label": label, title: label }));
         }));
-
-        const items = s.players.map(p => $("<li>")
-            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
-            .toggleClass("offline", !p.connected)
-            .toggleClass("me", p.id === this.me));
-        $("#mpPlayers").empty().append(items);
-        $("#mpChips").empty().append(items.map($li => $li.clone()));
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
         $("#mpRanking li").each((_, li) => {
             const p = s.players.find(x => x.id === li.dataset.id);
