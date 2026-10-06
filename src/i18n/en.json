@@ -62,8 +62,11 @@
         "loadingImages": "Loading images… ({{ready}}/{{total}})",
         "gameRunning": "This game has already started. You can still watch it.",
         "reconnecting": "Reconnecting…",
-        "showOnScreen": "Show on a big screen",
         "enterName": "Enter your name first",
+        "copyJoinLink": "Copy join link",
+        "copyWatchLink": "Copy watch link",
+        "joinLinkCopied": "Join link copied",
+        "watchLinkCopied": "Watch link copied",
         "you": "You",
         "kick": "Remove {{name}}",
         "buttons": {

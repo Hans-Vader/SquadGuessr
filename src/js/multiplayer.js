@@ -3,6 +3,7 @@ import { LatLngBounds } from "leaflet";
 import QRCode from "qrcode";
 import { guessMarker } from "./guessMarker.js";
 import { updateOffset } from "./clock.js";
+import { copyText } from "./clipboard.js";
 import Preloader from "./preloader.js";
 import { findMap, basemapUrl } from "./data/maps.js";
 
@@ -60,8 +61,10 @@ export default class Multiplayer {
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
         $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
         $("#BUTTON_MP_START").on("click", () => this.start());
-        $("#BUTTON_MP_WATCH").on("click", () => this.watchRunning());
+        $("#BUTTON_MP_WATCH").on("click", () => this.watchCode($("#mpCode").val()));
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
+        $("#BUTTON_MP_COPY_JOIN").on("click", () => this.copyLink("#mpJoinUrl", "mp.joinLinkCopied"));
+        $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
         $("#mpPlayers").on("click", ".mp-kick", (e) => this.send({ type: "kick", playerId: e.currentTarget.dataset.id }));
         document.addEventListener("visibilitychange", () => this.onVisible());
@@ -114,17 +117,15 @@ export default class Multiplayer {
         this.open({ type: "join", code, name, token: localStorage.getItem(`mp:${code}`) ?? undefined });
     }
 
-    // too late to play: switch the same page to the watch view of that session
-    watchRunning() {
-        const code = this.runningCode;
+    // watch instead of playing (also offered when it is too late to play): the same page turns into the big screen
+    watchCode(rawCode) {
+        const code = String(rawCode).trim().toUpperCase();
+        if (code.length !== 4) return this.toast("warning", "mp.errors.CODE");
         $("#mpEntry").removeClass("running");
-        history.replaceState({}, "", `/?watch=${code}`);
         this.watch(code);
     }
 
     watch(code) {
-        this.watching = true;
-        $("body").addClass("watch-mode");
         this.open({ type: "watch", code: code.toUpperCase() });
     }
 
@@ -169,6 +170,8 @@ export default class Multiplayer {
         this.ws = null;
         previous?.close();
         this.hello = hello;
+        // a JOIN clicked while a watch attempt still connects makes this a player again
+        this.watching = hello.type === "watch";
         this.active = true;
         this.retry = 0;
         $("body").addClass("mp-active");
@@ -260,6 +263,12 @@ export default class Multiplayer {
             history.replaceState({}, "", `/?join=${msg.code}`);
             break;
         case "state":
+            // like welcome for a player: only once the server took the code does the page turn into the big screen and
+            // the address into its link (a reload keeps watching); until then the entry form, BACK included, stays usable
+            if (this.watching && !this.state) {
+                $("body").addClass("watch-mode");
+                history.replaceState({}, "", `/?watch=${msg.code}`);
+            }
             this.state = msg;
             this.renderState();
             break;
@@ -285,8 +294,8 @@ export default class Multiplayer {
         // a rejected start brings no new state, so the START spinner would stay
         if (this.state?.phase === "lobby" && !this.guessFetch) this.app.setButtonLoading($("#BUTTON_MP_START"), false);
         if (code === "GAME_RUNNING") {
-            // no toast: the entry form now explains it and offers to watch instead
-            this.runningCode = this.hello?.code;
+            // no toast: the entry form now explains it and offers to watch instead (with the code, even after a rejoin)
+            $("#mpCode").val(this.hello?.code);
             this.stop();
             $("#mpEntry").addClass("running");
             return this.showEntry();
@@ -303,11 +312,12 @@ export default class Multiplayer {
         if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY", "KICKED"].includes(code);
         if (!rejected) return;
-        // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen tab, or an invite
+        // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen link, or an invite
         // link whose form cannot fix it (dead or full session; the form only lets you change the name)
         const invite = $("#mpEntry").hasClass("invite");
-        if (this.state || this.watching || (invite && code !== "NAME_TAKEN")) return this.leave();
-        // wrong code or taken name: stay on the form to correct it
+        const watchLink = Boolean(new URLSearchParams(location.search).get("watch"));
+        if (this.state || watchLink || (invite && code !== "NAME_TAKEN")) return this.leave();
+        // wrong code (to play or to watch) or taken name: stay on the form to correct it
         // (an automatic rejoin after a reload never showed the form, hence showEntry)
         this.stop();
         this.showEntry();
@@ -685,7 +695,13 @@ export default class Multiplayer {
         const url = `${location.origin}/?join=${this.code}`;
         QRCode.toCanvas(document.getElementById("mpQr"), url, { width: 220, margin: 1 });
         $("#mpJoinUrl").text(url);
-        $("#mpWatchLink").attr("href", `/?watch=${this.code}`);
+        $("#mpWatchUrl").text(`${location.origin}/?watch=${this.code}`);
+    }
+
+    copyLink(selector, key) {
+        copyText($(selector).text())
+            .then(() => this.toast("success", key))
+            .catch(err => console.error("Copy failed", err));
     }
 
     toast(type, key) {

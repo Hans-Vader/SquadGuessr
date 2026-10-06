@@ -2,7 +2,7 @@
 
 </br><img src="https://img.shields.io/badge/-new%20features-green">
 - Added "Play with friends": join a session from your phone by code/QR, play synchronized rounds and find out who wins
-- Added a big-screen view (`?watch=CODE`) for projectors/TVs
+- Added a big-screen view for projectors/TVs: WATCH with the session code instead of joining
 - Added Docker Compose hosting (frontend + multiplayer server)
 - Multiplayer rounds start for everyone at the same moment, once every phone has loaded the images; the next round's images load in the background while you play
 

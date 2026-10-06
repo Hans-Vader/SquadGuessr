@@ -8,6 +8,7 @@ import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
 import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
+import { copyText } from "./clipboard.js";
 import { retryDelay } from "./preloader.js";
 import "./libs/leaflet-measure-path.js";
 
@@ -164,7 +165,7 @@ export default class SquadGuessr {
         this.gameData.forEach((guess, index) => { text += `  🔸*Guess#${index + 1}: ${guess.points} points*\n`; });
         text = text + "\nThink you can beat me? Try now: https://squadguessr.app 🗺️";
 
-        navigator.clipboard.writeText(text).then(() => {
+        copyText(text).then(() => {
             let title = i18next.t("common:results.resultCopied");
             let subtext = i18next.t("common:results.shareItWithYourFriends");
             this.openToast("success", title, subtext);
