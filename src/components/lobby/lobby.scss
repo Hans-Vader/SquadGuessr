@@ -97,6 +97,16 @@
             opacity: 0.4;
         }
     }
+    // host's kick icon inside a lobby chip: none of the big global button look
+    .mp-kick {
+        font-size: 1em;
+        padding: 0 0 0 0.5em;
+        &,
+        &:hover,
+        &:active {
+            background: none;
+        }
+    }
 }
 
 .mp-ranking {

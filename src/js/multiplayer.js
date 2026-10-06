@@ -63,6 +63,7 @@ export default class Multiplayer {
         $("#BUTTON_MP_WATCH").on("click", () => this.watchRunning());
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
+        $("#mpPlayers").on("click", ".mp-kick", (e) => this.send({ type: "kick", playerId: e.currentTarget.dataset.id }));
         document.addEventListener("visibilitychange", () => this.onVisible());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
@@ -300,7 +301,7 @@ export default class Multiplayer {
         this.toast("error", `mp.errors.${code}`);
         // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
         if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
-        const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY"].includes(code);
+        const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY", "KICKED"].includes(code);
         if (!rejected) return;
         // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen tab, or an invite
         // link whose form cannot fix it (dead or full session; the form only lets you change the name)
@@ -602,6 +603,22 @@ export default class Multiplayer {
     }
 
     renderPlayers(s) {
+
+        const chip = p => $("<li>")
+            .text(`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`)
+            .toggleClass("offline", !p.connected)
+            .toggleClass("me", p.id === this.me);
+        $("#mpChips").empty().append(s.players.map(chip));
+        // kicking is lobby only, so the in-game chips stay without the button
+        const kickable = s.phase === "lobby" && this.isHost();
+        $("#mpPlayers").empty().append(s.players.map(p => {
+            const $li = chip(p);
+            if (!kickable || p.id === this.me) return $li;
+            // set as an attribute, not HTML: the name must not come out escaped
+            const label = i18next.t("mp.kick", { ns: "common", name: p.name, interpolation: { escapeValue: false } });
+            return $li.append($("<button class=\"mp-kick\">✕</button>").attr({ "data-id": p.id, "aria-label": label, title: label }));
+        }));
+
         const items = s.players.map(p => $("<li>")
             .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${s.phase === "round" && p.answered ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
