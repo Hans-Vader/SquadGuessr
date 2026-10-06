@@ -124,6 +124,7 @@ export class Session {
         if (this.phase !== "lobby" || !validGuesses(guesses, this.settings.rounds)) {
             return this.error(conn, "INVALID");
         }
+        if (!this.canStart()) return this.error(conn, "NO_PLAYERS");
         this.guesses = guesses.map(g => ({ map: g.map, url: g.url, lat: g.lat, lng: g.lng, submitter: g.submitter ?? null }));
         this.resetScores();
         this.round = 0;
@@ -171,6 +172,13 @@ export class Session {
      */
     allReady() {
         return [...this.players.values()].every(p => !p.connected || p.id === this.hostId || p.lobbyReady);
+    }
+
+    /**
+     * Somebody to play against: at least one other player is connected (a watcher does not count)
+     */
+    canStart() {
+        return Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
     }
 
     checkLoaded() {
@@ -335,6 +343,9 @@ export class Session {
             round: this.round,
             total: this.guesses.length || this.settings.rounds,
             startsAt: this.startsAt,
+            // the host's START: green once everyone is ready, locked while nobody else is there
+            allReady: this.allReady(),
+            canStart: this.canStart(),
             players: [...this.players.values()].map(p => ({
                 id: p.id,
                 name: p.name,

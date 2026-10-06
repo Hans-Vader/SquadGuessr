@@ -340,6 +340,7 @@ test("a host who leaves hands the host role to the next connected player", () =>
     const state = last(guest, "state");
     assert.equal(state.hostId, last(guest, "welcome").playerId);
     assert.deepEqual(state.players.map(p => p.name), ["Max"]);
+    s.join({}, { name: "Ana" });
     begin(guest);
     assert.equal(s.phase, "round");
 });
@@ -370,6 +371,7 @@ test("a lobby guest whose connection drops keeps their place and can still get i
     const token = last(guest, "welcome").token;
     s.disconnect(guest);
     assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected]), [["Hans", true], ["Max", false]]);
+    s.join({}, { name: "Ana" });
     begin();
     const phone = {};
     assert.equal(s.join(phone, { name: "Max", token }), true);
@@ -447,6 +449,7 @@ test("when nobody connected holds the host role, the next player who is there ge
     s.join(phone, { name: "Hans" });
     s.tick();
     assert.equal(last(tv, "state").hostId, last(phone, "welcome").playerId);
+    s.join({}, { name: "Max" });
     begin(phone);
     assert.equal(s.phase, "round");
 });
@@ -682,10 +685,28 @@ test("every start counts down: 5 s when every connected guest is ready, otherwis
     assert.equal(countdown(() => {}), COUNTDOWN_FORCED_MS);
     assert.equal(countdown(({ s, guest }) => s.handle(guest, { type: "lobbyReady", ready: true })), COUNTDOWN_READY_MS);
     // a guest whose connection dropped is not waited for; the host's START is their ready
-    assert.equal(countdown(({ s, guest }) => s.disconnect(guest)), COUNTDOWN_READY_MS);
-    const alone = setup();
-    alone.s.handle(alone.host, { type: "start", guesses: GUESSES });
-    assert.equal(alone.last(alone.host, "state").startsAt, 1000 + COUNTDOWN_READY_MS);
+    assert.equal(countdown(({ s, guest }) => {
+        const ana = {};
+        s.join(ana, { name: "Ana" });
+        s.handle(ana, { type: "lobbyReady", ready: true });
+        s.disconnect(guest);
+    }), COUNTDOWN_READY_MS);
+});
+
+test("the host cannot start alone: at least one other player has to be connected, a watcher does not count", () => {
+    const { s, host, guest, last } = withGuest();
+    const token = last(guest, "welcome").token;
+    s.watch({});
+    s.disconnect(guest);
+    assert.equal(last(host, "state").canStart, false);
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(last(host, "error").code, "NO_PLAYERS");
+    assert.equal(s.phase, "lobby");
+    s.join({}, { name: "Max", token });
+    assert.equal(last(host, "state").canStart, true);
+    assert.equal(last(host, "state").allReady, false);
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(s.phase, "loading");
 });
 
 test("round 1 never starts before the countdown ends, even with every image there", () => {
@@ -775,11 +796,15 @@ test("a guest whose connection dropped in the lobby keeps their place through a 
     s.disconnect(guest);
     advance(RECONNECT_MS + 60 * 1000);
     s.tick();
+    // the host is not alone, so the start goes through
+    s.join({}, { name: "Ana" });
     s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(s.phase, "loading");
     s.handle(host, { type: "cancelStart" });
-    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected, p.lobbyReady]), [["Hans", true, false], ["Max", false, true]]);
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected, p.lobbyReady]), [["Hans", true, false], ["Max", false, true], ["Ana", true, false]]);
     // back with their token, even once the next start is running
     s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(s.phase, "loading");
     const phone = {};
     assert.equal(s.join(phone, { token }), true);
     assert.equal(last(phone, "welcome").playerId, last(guest, "welcome").playerId);
