@@ -12,6 +12,7 @@
         "timer": "Timer",
         "chill": "Chill",
         "timed": "Timed",
+        "timedOption": "Timed (60 s)",
         "rush": "Rush",
         "takeYourTime": "Take your time",
         "oneMinutePerGuess": "1mn per guess",
@@ -64,8 +65,13 @@
         "startingIn": "Starting in {{seconds}} s…",
         "nextIn": "Next round in {{seconds}} s…",
         "resultsIn": "Results in {{seconds}} s…",
-        "nextHost": "Next: host",
-        "nextAuto": "Next: auto",
+        "nextHost": "Host",
+        "nextAuto": "Auto",
+        "settings": {
+            "rounds": "Rounds",
+            "next": "Next round",
+            "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up."
+        },
         "gameRunning": "This game has already started. You can still watch it.",
         "reconnecting": "Reconnecting…",
         "enterName": "Enter your name first",
@@ -75,6 +81,14 @@
         "watchLinkCopied": "Watch link copied",
         "you": "You",
         "kick": "Remove {{name}}",
+        "onResults": "Still looking at the results",
+        "makeHost": "Make {{name}} host",
+        "nowHost": "You are now the host",
+        "noLongerHost": "You are no longer the host",
+        "confirm": {
+            "kick": "Remove {{name}} from the session?",
+            "promote": "Make {{name}} the host? You will be a regular player then."
+        },
         "buttons": {
             "create": "CREATE SESSION",
             "join": "JOIN",

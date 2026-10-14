@@ -12,8 +12,10 @@ export const LOAD_MS = 5 * 1000;
 // every start counts down so all devices load round 1 meanwhile; longer when not every guest is ready yet
 export const COUNTDOWN_READY_MS = 5 * 1000;
 export const COUNTDOWN_FORCED_MS = 15 * 1000;
+// how long players back in the lobby wait for a host still on the results before one of them takes over
+export const HANDOVER_MS = 30 * 1000;
 
-const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "lobby", "kick"];
+const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "kick", "promote"];
 
 /**
  * One multiplayer session: lobby → loading → round → reveal → loading → … → final
@@ -105,6 +107,8 @@ export class Session {
         if (msg.type === "ready") return this.ready(player, msg.index);
         if (msg.type === "lobbyReady") return this.lobbyReady(player, msg.ready);
         if (msg.type === "leave") return this.leave(player);
+        // after a game everyone leaves their results on their own
+        if (msg.type === "lobby") return this.toLobby(player);
         if (!HOST_ACTIONS.includes(msg.type)) return this.error(conn, "INVALID");
         if (player.id !== this.hostId) return this.error(conn, "NOT_HOST");
 
@@ -115,8 +119,8 @@ export class Session {
         case "endRound": return this.phase === "round" && this.deadline === null ? this.endRound() : this.error(conn, "INVALID");
         // with settings.next the countdown alone moves on
         case "next": return this.settings.next ? this.error(conn, "INVALID") : this.next(conn);
-        case "lobby": return this.toLobby(conn);
         case "kick": return this.kick(conn, msg.playerId);
+        case "promote": return this.promote(conn, msg.playerId);
         }
     }
 
@@ -134,6 +138,19 @@ export class Session {
         this.leave(player);
     }
 
+    /**
+     * Lobby only: the host hands the role to someone who is there, and is a guest from then on
+     */
+    promote(conn, playerId) {
+        if (this.phase !== "lobby" || playerId === this.hostId) return this.error(conn, "INVALID");
+        const player = this.players.get(playerId);
+        // gone, offline or still on the results (left or dropped out while the host confirmed): nothing to do,
+        // the role would only move on again at once
+        if (!player?.connected || player.backAt === null) return;
+        this.hostId = player.id;
+        this.broadcastState();
+    }
+
     updateSettings(conn, settings) {
         if (this.phase !== "lobby" || !validSettings(settings)) return this.error(conn, "INVALID");
         this.settings = pickSettings(settings);
@@ -148,6 +165,8 @@ export class Session {
         this.guesses = guesses.map(g => ({ map: g.map, url: g.url, lat: g.lat, lng: g.lng, submitter: g.submitter ?? null }));
         this.resetScores();
         this.round = 0;
+        // whoever was still on the results is taken along: a start called off brings them to the lobby too
+        this.players.forEach(p => { p.backAt ??= this.now(); });
         this.startsAt = this.now() + (this.allReady() ? COUNTDOWN_READY_MS : COUNTDOWN_FORCED_MS);
         this.load();
     }
@@ -312,11 +331,19 @@ export class Session {
         this.broadcast(this.finalMsg());
     }
 
-    toLobby(conn) {
-        // the last reveal counts as over: players see their results without waiting for the host's "next",
-        // and one of them may have become host there
+    /**
+     * The first player done with the results takes the session back to the lobby; the others follow when they are done
+     */
+    toLobby(player) {
+        if (this.phase === "lobby") {
+            // a double click is normal
+            if (player.backAt !== null) return;
+            player.backAt = this.now();
+            return this.broadcastState();
+        }
+        // the last reveal counts as over: players see their results without waiting for the host's "next"
         const lastReveal = this.phase === "reveal" && this.round + 1 === this.guesses.length;
-        if (this.phase !== "final" && !lastReveal) return this.error(conn, "INVALID");
+        if (this.phase !== "final" && !lastReveal) return this.error(player.conn, "INVALID");
         this.phase = "lobby";
         this.guesses = [];
         this.round = 0;
@@ -324,7 +351,8 @@ export class Session {
         // whoever left or dropped out during the game does not haunt the next one (coming back simply joins again)
         this.players.forEach(p => { if (!p.connected) this.players.delete(p.id); });
         // the next game asks everyone again
-        this.players.forEach(p => { p.lobbyReady = false; });
+        this.players.forEach(p => { p.lobbyReady = false; p.backAt = null; });
+        player.backAt = this.now();
         this.resetScores();
         this.broadcastState();
     }
@@ -338,13 +366,17 @@ export class Session {
     }
 
     /**
-     * Once the host left, or has been gone for longer than a reload takes, a connected player takes over;
+     * Once the host left, has been gone for longer than a reload takes, or is still on the results while somebody has
+     * waited in the lobby for HANDOVER_MS, a connected player takes over: whoever came back to the lobby first;
      * with nobody connected the role waits for whoever comes (back) first. True if the host changed.
      */
     fixHost() {
         const host = this.players.get(this.hostId);
-        if (host && this.isPresent(host)) return false;
-        const next = this.findPlayer(p => p.connected);
+        const waited = p => p.connected && p.backAt !== null && this.now() - p.backAt >= HANDOVER_MS;
+        const late = this.phase === "lobby" && host?.backAt === null && Boolean(this.findPlayer(waited));
+        if (host && this.isPresent(host) && !late) return false;
+        const connected = [...this.players.values()].filter(p => p.connected);
+        const next = connected.filter(p => p.backAt !== null).sort((a, b) => a.backAt - b.backAt)[0] ?? connected[0];
         if (!next) return false;
         this.hostId = next.id;
         return true;
@@ -383,6 +415,8 @@ export class Session {
                 ready: this.phase === "loading" && p.ready >= this.round,
                 stalled: p.stalled,
                 lobbyReady: p.lobbyReady,
+                // false while still on the results of the last game
+                back: p.backAt !== null,
             })),
         };
     }
@@ -429,7 +463,7 @@ export class Session {
     // ===== HELPERS =====
 
     addPlayer(conn, name) {
-        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false };
+        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, backAt: this.now() };
         this.players.set(player.id, player);
         return player;
     }

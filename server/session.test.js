@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS } from "./session.js";
+import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS, HANDOVER_MS } from "./session.js";
 import { mapSize } from "../src/js/scoring.js";
 
 const CLASSIC = { mode: "classic", timer: 0, rounds: 3, next: 0 };
@@ -45,6 +45,15 @@ function started(settings) {
     const ctx = withGuest(settings);
     ctx.begin();
     return ctx;
+}
+
+// the host plays the game through to the final ranking
+function finish(s, host) {
+    for (let i = 0; i < 3; i++) {
+        s.handle(host, { type: "endRound" });
+        readyAll(s, s.round + 1);
+        s.handle(host, { type: "next" });
+    }
 }
 
 test("create makes the creator host and player", () => {
@@ -329,6 +338,73 @@ test("back to the lobby is allowed from the last reveal (players may already be 
     assert.equal(s.phase, "lobby");
 });
 
+test("any player goes back to the lobby on their own: the others stay on their results until they follow", () => {
+    const { s, host, guest, last } = started();
+    finish(s, host);
+    s.handle(guest, { type: "lobby" });
+    assert.equal(s.phase, "lobby");
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.back]), [["Hans", false], ["Max", true]]);
+    s.handle(guest, { type: "lobbyReady", ready: true });
+    s.handle(host, { type: "lobby" });
+    // following does not start the lobby over: the guest stays ready
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.back, p.lobbyReady]), [["Hans", true, false], ["Max", true, true]]);
+});
+
+test("going back to the lobby mid-game is refused for guests as for the host", () => {
+    const { s, guest, last } = started();
+    s.handle(guest, { type: "lobby" });
+    assert.equal(last(guest, "error").code, "INVALID");
+    assert.equal(s.phase, "round");
+});
+
+test("whoever joins the lobby after a game is in it, not on any results", () => {
+    const { s, host, guest, last } = started();
+    finish(s, host);
+    s.handle(guest, { type: "lobby" });
+    s.join({}, { name: "Ana" });
+    assert.equal(last(host, "state").players.find(p => p.name === "Ana").back, true);
+});
+
+test("a host still on the results HANDOVER_MS after the first player came back hands over to whoever came back first", () => {
+    const { s, host, guest, last, advance, begin } = withGuest();
+    const ana = {};
+    s.join(ana, { name: "Ana" });
+    begin();
+    finish(s, host);
+    s.handle(ana, { type: "lobby" });
+    advance(5_000);
+    s.handle(guest, { type: "lobby" });
+    advance(HANDOVER_MS - 5_001);
+    s.tick();
+    assert.equal(last(guest, "state").hostId, last(host, "welcome").playerId);
+    advance(1);
+    s.tick();
+    assert.equal(last(guest, "state").hostId, last(ana, "welcome").playerId);
+    // coming back later, the old host is a guest like the others
+    s.handle(host, { type: "lobby" });
+    assert.equal(last(host, "state").hostId, last(ana, "welcome").playerId);
+});
+
+test("a host back in the lobby in time keeps the role, however long the others waited", () => {
+    const { s, host, guest, last, advance } = started();
+    finish(s, host);
+    s.handle(guest, { type: "lobby" });
+    advance(HANDOVER_MS - 1);
+    s.handle(host, { type: "lobby" });
+    advance(10 * 60_000);
+    s.tick();
+    assert.equal(s.hostId, last(host, "welcome").playerId);
+});
+
+test("a called-off start leaves nobody on the results: the start took everyone along", () => {
+    const { s, host, last } = started();
+    finish(s, host);
+    s.handle(host, { type: "lobby" });
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(host, { type: "cancelStart" });
+    assert.equal(last(host, "state").players.find(p => p.name === "Max").back, true);
+});
+
 test("watchers receive state and rounds but cannot act", () => {
     const { s, last, begin } = withGuest();
     const tv = {};
@@ -407,6 +483,48 @@ test("only the host kicks, never themselves, and only in the lobby", () => {
     s.handle(host, { type: "kick", playerId: guestId });
     assert.equal(last(host, "error").code, "INVALID");
     assert.equal(s.players.size, 2);
+});
+
+test("the host can make a guest in the lobby host and is a guest then", () => {
+    const { s, host, guest, last } = withGuest();
+    const guestId = last(guest, "welcome").playerId;
+    s.handle(host, { type: "promote", playerId: guestId });
+    assert.equal(last(host, "state").hostId, guestId);
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(last(host, "error").code, "NOT_HOST");
+    s.handle(guest, { type: "start", guesses: GUESSES });
+    assert.equal(s.phase, "loading");
+});
+
+test("only the host promotes, never themselves, and only in the lobby", () => {
+    const { s, host, guest, last } = withGuest();
+    const hostId = last(host, "welcome").playerId;
+    const guestId = last(guest, "welcome").playerId;
+    s.handle(guest, { type: "promote", playerId: guestId });
+    assert.equal(last(guest, "error").code, "NOT_HOST");
+    s.handle(host, { type: "promote", playerId: hostId });
+    assert.equal(last(host, "error").code, "INVALID");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(host, { type: "promote", playerId: guestId });
+    assert.equal(last(host, "error").code, "INVALID");
+    assert.equal(s.hostId, hostId);
+});
+
+test("promoting someone gone, offline or still on the results does nothing: they may have left during the question", () => {
+    const { s, host, guest, last, all } = started();
+    const hostId = last(host, "welcome").playerId;
+    const ana = {};
+    finish(s, host);
+    s.handle(host, { type: "lobby" });
+    s.join(ana, { name: "Ana" });
+    const anaId = last(ana, "welcome").playerId;
+    s.disconnect(ana);
+    const before = all(host, "error").length;
+    s.handle(host, { type: "promote", playerId: last(guest, "welcome").playerId });
+    s.handle(host, { type: "promote", playerId: anaId });
+    s.handle(host, { type: "promote", playerId: "nobody" });
+    assert.equal(s.hostId, hostId);
+    assert.equal(all(host, "error").length, before);
 });
 
 test("leaving a running game keeps the player's score but marks them offline", () => {
