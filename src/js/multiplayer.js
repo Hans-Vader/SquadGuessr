@@ -752,7 +752,7 @@ export default class Multiplayer {
     renderPlayers(s) {
 
         const chip = p => $("<li>")
-            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "📊" : ""].filter(Boolean).join(" "))
+            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
             .attr("title", s.phase === "lobby" && p.back === false ? i18next.t("mp.onResults", { ns: "common" }) : null)
             .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
@@ -769,7 +769,7 @@ export default class Multiplayer {
                 return $(`<button class="mp-${action}">`).text(icon).attr({ "data-id": p.id, "data-action": action, "aria-label": label, title: label });
             };
             // only to someone who is there: the role would move on again at once (see fixHost on the server)
-            if (p.connected && p.back !== false) $li.append(button("promote", "👑", "mp.makeHost"));
+            if (p.connected && p.back !== false) $li.append(button("promote", "🔑", "mp.makeHost"));
             return $li.append(button("kick", "✕", "mp.kick"));
         }));
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
