@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS } from "./session.js";
 import { mapSize } from "../src/js/scoring.js";
 
-const CLASSIC = { mode: "classic", timer: 0, rounds: 3 };
+const CLASSIC = { mode: "classic", timer: 0, rounds: 3, next: 0 };
 const GUESSES = [
     { map: "Narva", url: "/img/guesses/a.webp", lat: -100, lng: 200, submitter: "Dan" },
     { map: "GooseBay", url: "/img/guesses/b.webp", lat: -300, lng: 400 },
@@ -102,8 +102,13 @@ test("only the host may control the game", () => {
 
 test("host can change settings in the lobby", () => {
     const { s, host, guest, last } = withGuest();
-    s.handle(host, { type: "settings", settings: { mode: "mapFinder", timer: 15, rounds: 5 } });
-    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 15, rounds: 5 });
+    s.handle(host, { type: "settings", settings: { mode: "mapFinder", timer: 20, rounds: 5, next: 15 } });
+    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 20, rounds: 5, next: 15 });
+});
+
+test("settings without next (an older cached client) leave the next round to the host", () => {
+    const { last, host } = setup({ mode: "classic", timer: 0, rounds: 3 });
+    assert.equal(last(host, "state").settings.next, 0);
 });
 
 test("start rejects guesses that do not match settings.rounds", () => {
@@ -270,6 +275,44 @@ test("final ranking with a tie has two winners, lobby resets", () => {
     const state = last(guest, "state");
     assert.equal(state.phase, "lobby");
     assert.deepEqual(state.players.map(p => p.score), [0, 0]);
+});
+
+test("by default the reveal waits for the host's NEXT, however long it takes", () => {
+    const { s, host, last, advance } = started();
+    s.handle(host, { type: "endRound" });
+    assert.equal(last(host, "state").nextAt, null);
+    advance(10 * 60_000);
+    s.tick();
+    assert.equal(s.phase, "reveal");
+});
+
+test("with auto next the reveal moves on by itself after next seconds, and the host cannot skip it", () => {
+    const { s, host, guest, last, advance } = started({ mode: "classic", timer: 0, rounds: 3, next: 15 });
+    s.handle(host, { type: "endRound" });
+    assert.equal(last(guest, "state").nextAt, s.now() + 15_000);
+    s.handle(host, { type: "next" });
+    assert.equal(last(host, "error").code, "INVALID");
+    readyAll(s, 1);
+    advance(14_999);
+    s.tick();
+    assert.equal(s.phase, "reveal");
+    advance(1);
+    s.tick();
+    assert.equal(s.phase, "round");
+    assert.equal(s.round, 1);
+    assert.equal(last(guest, "state").nextAt, null);
+});
+
+test("with auto next the last reveal moves everyone on to the final ranking", () => {
+    const { s, host, guest, last, advance } = started({ mode: "classic", timer: 0, rounds: 3, next: 5 });
+    for (let i = 0; i < 3; i++) {
+        readyAll(s, s.round + 1);
+        s.handle(host, { type: "endRound" });
+        advance(5_000);
+        s.tick();
+    }
+    assert.equal(s.phase, "final");
+    assert.ok(last(guest, "final"));
 });
 
 test("back to the lobby is allowed from the last reveal (players may already be on their results), not earlier", () => {

@@ -32,6 +32,8 @@ export class Session {
         this.phase = "lobby";
         this.round = 0;
         this.deadline = null;
+        // with settings.next: when the reveal moves on by itself
+        this.nextAt = null;
         this.loadUntil = null;
         this.startsAt = null;
         this.players = new Map();
@@ -111,7 +113,8 @@ export class Session {
         case "start": return this.start(conn, msg.guesses);
         case "cancelStart": return this.cancelStart(conn);
         case "endRound": return this.phase === "round" && this.deadline === null ? this.endRound() : this.error(conn, "INVALID");
-        case "next": return this.next(conn);
+        // with settings.next the countdown alone moves on
+        case "next": return this.settings.next ? this.error(conn, "INVALID") : this.next(conn);
         case "lobby": return this.toLobby(conn);
         case "kick": return this.kick(conn, msg.playerId);
         }
@@ -288,6 +291,7 @@ export class Session {
     endRound() {
         this.phase = "reveal";
         this.deadline = null;
+        this.nextAt = this.settings.next ? this.now() + this.settings.next * 1000 : null;
         this.players.forEach(p => {
             if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: 0 };
             p.score += p.answers[this.round].points;
@@ -298,6 +302,7 @@ export class Session {
 
     next(conn) {
         if (this.phase !== "reveal") return this.error(conn, "INVALID");
+        this.nextAt = null;
         if (this.round + 1 < this.guesses.length) {
             this.round++;
             return this.load();
@@ -315,6 +320,7 @@ export class Session {
         this.phase = "lobby";
         this.guesses = [];
         this.round = 0;
+        this.nextAt = null;
         // whoever left or dropped out during the game does not haunt the next one (coming back simply joins again)
         this.players.forEach(p => { if (!p.connected) this.players.delete(p.id); });
         // the next game asks everyone again
@@ -326,6 +332,7 @@ export class Session {
     tick() {
         if (this.fixHost()) this.broadcastState();
         if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) return this.endRound();
+        if (this.phase === "reveal" && this.nextAt !== null && this.now() >= this.nextAt) return this.next();
         // someone who dropped out and did not come back in time stops holding up the round
         this.checkRoundEnd();
     }
@@ -363,6 +370,7 @@ export class Session {
             round: this.round,
             total: this.guesses.length || this.settings.rounds,
             startsAt: this.startsAt,
+            nextAt: this.nextAt,
             // the host's START: green once everyone is ready, locked while nobody else is there
             allReady: this.allReady(),
             canStart: this.canStart(),
@@ -494,8 +502,8 @@ export class Session {
     }
 }
 
-function pickSettings({ mode, timer, rounds }) {
-    return { mode, timer, rounds };
+function pickSettings({ mode, timer, rounds, next = 0 }) {
+    return { mode, timer, rounds, next };
 }
 
 function clamp(value, min, max) {
