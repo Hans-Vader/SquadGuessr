@@ -172,7 +172,7 @@
     margin: 1em auto;
     // one grid for the whole list so every row shares the same column widths
     display: grid;
-    grid-template-columns: 2.5em 1fr auto auto;
+    grid-template-columns: 2.5em 1em 1fr auto auto;
     align-content: start;
     li {
         display: grid;
@@ -186,8 +186,12 @@
             background: rgba(17, 68, 126, 0.3);
         }
     }
-    .points {
+    .points,
+    .up {
         color: #7c7;
+    }
+    .down {
+        color: #e66;
     }
 }
 

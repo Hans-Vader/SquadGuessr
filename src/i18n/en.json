@@ -70,6 +70,8 @@
         "joinLinkCopied": "Join link copied",
         "watchLinkCopied": "Watch link copied",
         "you": "You",
+        "up": "moved up",
+        "down": "moved down",
         "kick": "Remove {{name}}",
         "buttons": {
             "create": "CREATE SESSION",
