@@ -769,7 +769,7 @@ export default class Multiplayer {
                 return $(`<button class="mp-${action}">`).text(icon).attr({ "data-id": p.id, "data-action": action, "aria-label": label, title: label });
             };
             // only to someone who is there: the role would move on again at once (see fixHost on the server)
-            if (p.connected && p.back !== false) $li.append(button("promote", "👑", "mp.makeHost"));
+            if (p.connected && p.back !== false) $li.append(button("promote", "🔑", "mp.makeHost"));
             return $li.append(button("kick", "✕", "mp.kick"));
         }));
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
