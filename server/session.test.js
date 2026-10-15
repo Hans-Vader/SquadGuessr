@@ -93,12 +93,13 @@ test("new players cannot join a running game", () => {
     assert.equal(last(late, "error").code, "GAME_RUNNING");
 });
 
-test("until round 1 runs, players come and go like in the lobby: who left during the countdown can play again", () => {
+test("until round 1 runs, players can join like in the lobby; who left during the countdown keeps their place, offline", () => {
     const { s, host, guest, last, advance } = withGuest();
     s.handle(host, { type: "start", guesses: GUESSES });
     s.handle(guest, { type: "leave" });
-    assert.deepEqual(last(host, "state").players.map(p => p.name), ["Hans"]);
-    // back without a token (LEAVE dropped it), and someone new: both get round 1's images to load
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected]), [["Hans", true], ["Max", false]]);
+    // back under the same name without the token (another device) takes the place over, and someone new joins:
+    // both get round 1's images to load
     const again = {};
     const late = {};
     assert.equal(s.join(again, { name: "Max" }), true);
@@ -813,7 +814,7 @@ test("after a game nobody is ready any more, and the next game starts from the l
     assert.equal(last(guest, "state").players.find(p => p.name === "Max").lobbyReady, false);
 });
 
-test("the host can call the start off until round 1 runs: back to the lobby, ready marks stay, who left is gone", () => {
+test("the host can call the start off until round 1 runs: back to the lobby, ready marks stay, who left stays offline", () => {
     const { s, host, guest, last, advance } = withGuest();
     const ida = {};
     s.join(ida, { name: "Ida" });
@@ -831,8 +832,9 @@ test("the host can call the start off until round 1 runs: back to the lobby, rea
     s.handle(host, { type: "cancelStart" });
     const state = last(guest, "state");
     assert.deepEqual([state.phase, state.startsAt], ["lobby", null]);
-    assert.deepEqual(state.players.map(p => [p.name, p.lobbyReady]), [["Hans", false], ["Max", true]]);
-    assert.deepEqual([...s.players.values()].map(p => [p.ready, p.stalled]), [[-1, false], [-1, false]]);
+    // Ida left during the countdown: offline like a dropped connection, she can come back with her token
+    assert.deepEqual(state.players.map(p => [p.name, p.connected, p.lobbyReady]), [["Hans", true, false], ["Max", true, true], ["Ida", false, true]]);
+    assert.deepEqual([...s.players.values()].map(p => [p.ready, p.stalled]), [[-1, false], [-1, false], [-1, false]]);
     // nothing keeps running in the lobby
     advance(LOAD_FIRST_MS);
     s.tick();
@@ -928,4 +930,46 @@ test("check turns away an unknown or odd token, a kicked player, who left the lo
     s.handle(host, { type: "next" });
     assert.equal(s.phase, "final");
     assert.equal(answer(token), "SESSION_NOT_FOUND");
+});
+
+test("who left during the countdown comes back with their token, even once round 1 runs", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    const { playerId, token } = last(guest, "welcome");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(guest, { type: "leave" });
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(s.phase, "round");
+    const phone = {};
+    assert.equal(s.join(phone, { token }), true);
+    assert.equal(last(phone, "welcome").playerId, playerId);
+    assert.equal(last(phone, "round").index, 0);
+});
+
+test("leaving the lobby tells everyone else who left; a kick, a dropped connection and leaving later do not", () => {
+    const { s, host, guest, all, last, advance } = withGuest();
+    const tv = {};
+    s.watch(tv);
+    const join = (name) => {
+        const conn = {};
+        s.join(conn, { name });
+        return conn;
+    };
+    const ida = join("Ida");
+    s.handle(ida, { type: "leave" });
+    const left = [{ type: "left", name: "Ida" }];
+    assert.deepEqual([all(host, "left"), all(guest, "left"), all(tv, "left"), all(ida, "left")], [left, left, left, []]);
+    const eve = join("Eve");
+    s.handle(host, { type: "kick", playerId: last(eve, "welcome").playerId });
+    s.disconnect(join("Ana"));
+    const bob = join("Bob");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(guest, { type: "leave" });
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(s.phase, "round");
+    s.handle(bob, { type: "leave" });
+    assert.deepEqual(all(host, "left"), left);
 });

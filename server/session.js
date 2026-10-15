@@ -286,12 +286,15 @@ export class Session {
     }
 
     /**
-     * Explicit "leave": frees name and slot until round 1 runs; during a game the player stays in the ranking, offline.
+     * Explicit "leave": in the lobby it frees name and slot for good, and the others are told who left. From the start
+     * countdown on the player stays in the ranking, offline, and can come back with their token (the REJOIN hint).
      * Unlike a dropped connection it takes effect at once: a leaving host hands the role over right away.
      */
     leave(player) {
-        if (this.joinable()) {
+        if (this.phase === "lobby") {
             this.players.delete(player.id);
+            // a kick is the host's own doing (kick() bans the token before it gets here): no notice for that
+            if (!this.kicked.has(player.token)) this.broadcast({ type: "left", name: player.name });
         } else {
             player.conn = null;
             player.connected = false;
