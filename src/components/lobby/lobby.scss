@@ -501,7 +501,11 @@ body.watch-mode.mp-reveal {
     }
     .mp-resume-join {
         height: 44px;
+        // the global 18px button padding leaves 8px for the text in 44px, which pushes it below the middle
+        padding: 0 1em;
         border-radius: 8px;
+        // like the entry form's buttons: the global 1.6em (desktop) is meant for the big menu buttons
+        font-size: 1.05em;
     }
     .mp-resume-dismiss {
         position: absolute;
