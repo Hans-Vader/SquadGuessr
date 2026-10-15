@@ -82,9 +82,13 @@ export default class Multiplayer {
         $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
         $("#mpPlayers").on("click", ".mp-kick", (e) => this.send({ type: "kick", playerId: e.currentTarget.dataset.id }));
-        $(".mp-resume-join").on("click", () => this.join(this.resumeCode));
+        $(".mp-resume-join").on("click", () => {
+            // the token gets us back in: a name field emptied in the entry form must not block that
+            if (!$("#mpName").val().trim()) $("#mpName").val(localStorage.getItem("mp:name") ?? "");
+            this.join(this.resumeCode);
+        });
         $(".mp-resume-dismiss").on("click", () => {
-            this.forget(this.resumeCode);
+            this.unpoint(this.resumeCode);
             this.closeResume();
         });
         document.addEventListener("visibilitychange", () => this.onVisible());
@@ -248,7 +252,7 @@ export default class Multiplayer {
             if (this.resumeCheck !== ws || this.active) return;
             this.resumeCheck = null;
             const msg = JSON.parse(event.data);
-            if (msg.type !== "resumable") return this.forget(code);
+            if (msg.type !== "resumable") return this.unpoint(code);
             this.showResume(msg);
         };
     }
@@ -330,18 +334,18 @@ export default class Multiplayer {
     }
 
     /**
-     * The token that gets this browser back into the session, and the session the REJOIN hint asks about (checkResume)
-     */
-    remember(code, token) {
-        localStorage.setItem(`mp:${code}`, token);
-        localStorage.setItem("mp:last", code);
-    }
-
-    /**
      * Drops a stored token that cannot get us back in any more, and the REJOIN pointer to it
      */
     forget(code) {
         localStorage.removeItem(`mp:${code}`);
+        this.unpoint(code);
+    }
+
+    /**
+     * No REJOIN hint for this session any more. Its token stays: another tab of this browser may still play with it,
+     * and its reload needs it (a dead token does no harm)
+     */
+    unpoint(code) {
         if (localStorage.getItem("mp:last") === code) localStorage.removeItem("mp:last");
     }
 
@@ -354,8 +358,10 @@ export default class Multiplayer {
         case "welcome":
             this.me = msg.playerId;
             this.code = msg.code;
-            this.remember(msg.code, msg.token);
-            this.hello = { type: "join", code: msg.code, name: this.hello.name, token: msg.token };
+            localStorage.setItem(`mp:${msg.code}`, msg.token);
+            // the session the REJOIN hint asks about (see checkResume)
+            localStorage.setItem("mp:last", msg.code);
+            this.hello ={ type: "join", code: msg.code, name: this.hello.name, token: msg.token };
             history.replaceState({}, "", `/?join=${msg.code}`);
             // a new connection has nothing in flight: a CANCEL lost with the old one can be clicked again
             $("#BUTTON_MP_CANCEL").prop("disabled", false);
@@ -367,9 +373,6 @@ export default class Multiplayer {
                 $("body").addClass("watch-mode");
                 history.replaceState({}, "", `/?watch=${msg.code}`);
             }
-            // a seat in use keeps its token: another tab of this browser may have dropped it (its ✕, or a check that
-            // found the game over), and a reload of this one must still get back in
-            if (this.me) this.remember(msg.code, this.hello.token);
             this.state = msg;
             this.renderState();
             break;
