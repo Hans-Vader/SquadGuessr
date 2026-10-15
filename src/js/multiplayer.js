@@ -61,7 +61,7 @@ export default class Multiplayer {
         });
         $("#BUTTON_MP_CREATE").on("click", () => this.create());
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
-        $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
+        $("#BUTTON_MP_LEAVE").on("click", () => { if (this.confirmLeave()) this.leave(); });
         $("#BUTTON_MP_START").on("click", () => this.start());
         $("#BUTTON_MP_READY").on("click", () => {
             const me = this.state?.players.find(p => p.id === this.me);
@@ -256,10 +256,28 @@ export default class Multiplayer {
 
     leave() {
         this.send({ type: "leave" });
-        // a big-screen tab never held a player token: it must not drop the one the player tab next to it uses
-        if (this.code && !this.watching) localStorage.removeItem(`mp:${this.code}`);
+        // only the lobby drops the player for good; from the countdown on the token is the way back (REJOIN hint).
+        // A big-screen tab never held a player token: it must not drop the one the player tab next to it uses
+        if (this.state?.phase === "lobby" && !this.watching) this.forget(this.code);
         this.stop();
         this.app.toMenu();
+    }
+
+    /**
+     * Leaving the lobby is final (the server drops the player, the token dies): asked first. Anywhere else the REJOIN
+     * hint brings the player back, and a big screen never was one. Only for clicks: onError leaves without asking
+     */
+    confirmLeave() {
+        if (this.watching || this.state?.phase !== "lobby") return true;
+        return confirm(i18next.t("mp.confirmLeave", { ns: "common" }));
+    }
+
+    /**
+     * Drops a stored token that cannot get us back in any more, and the REJOIN pointer to it
+     */
+    forget(code) {
+        localStorage.removeItem(`mp:${code}`);
+        if (localStorage.getItem("mp:last") === code) localStorage.removeItem("mp:last");
     }
 
     // ===== MESSAGES =====
@@ -272,6 +290,8 @@ export default class Multiplayer {
             this.me = msg.playerId;
             this.code = msg.code;
             localStorage.setItem(`mp:${msg.code}`, msg.token);
+            // the session the REJOIN hint asks about (see checkResume)
+            localStorage.setItem("mp:last", msg.code);
             this.hello = { type: "join", code: msg.code, name: this.hello.name, token: msg.token };
             history.replaceState({}, "", `/?join=${msg.code}`);
             // a new connection has nothing in flight: a CANCEL lost with the old one can be clicked again
@@ -299,6 +319,9 @@ export default class Multiplayer {
         case "final":
             this.onFinal(msg);
             break;
+        case "left":
+            this.toast("info", "mp.left", { name: msg.name });
+            break;
         case "error":
             this.onError(msg.code);
             break;
@@ -323,7 +346,7 @@ export default class Multiplayer {
         }
         this.toast("error", `mp.errors.${code}`);
         // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
-        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
+        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") this.forget(this.hello?.code);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY", "KICKED"].includes(code);
         if (!rejected) return;
         // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen link, or an invite
@@ -778,7 +801,8 @@ export default class Multiplayer {
             .catch(err => console.error("Copy failed", err));
     }
 
-    toast(type, key) {
-        this.app.openToast(type, i18next.t(key, { ns: "common" }), "");
+    toast(type, key, options = {}) {
+        // openToast sets innerHTML: values (a player name is user input) go through i18next, which escapes them
+        this.app.openToast(type, i18next.t(key, { ns: "common", ...options }), "");
     }
 }

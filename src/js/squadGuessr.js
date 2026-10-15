@@ -158,6 +158,8 @@ export default class SquadGuessr {
         this.BUTTON_PLAYAGAIN.on("click", () => this.mp.active ? this.mp.send({ type: "lobby" }) : this.startNewGame());
         this.BUTTON_SHARE.on("click", () => this.copyResults());
         this.MAIN_LOGO.on("click", () => {
+            // a "no" to leaving the lobby changes nothing at all
+            if (this.mp.active && !this.mp.confirmLeave()) return;
             this.stopTimer();
             if (this.mp.active) return this.mp.leave();
             this.toMenu();

@@ -73,6 +73,8 @@
         "up": "moved up",
         "down": "moved down",
         "kick": "Remove {{name}}",
+        "confirmLeave": "Leave the lobby? You will need the code to come back.",
+        "left": "{{name}} left the lobby",
         "buttons": {
             "create": "CREATE SESSION",
             "join": "JOIN",

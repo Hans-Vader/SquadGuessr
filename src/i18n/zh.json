@@ -73,6 +73,8 @@
         "up": "排名上升",
         "down": "排名下降",
         "kick": "移除 {{name}}",
+        "confirmLeave": "确定离开房间吗？之后需要房间码才能重新加入。",
+        "left": "{{name}} 离开了房间",
         "buttons": {
             "create": "创建房间",
             "join": "加入",
