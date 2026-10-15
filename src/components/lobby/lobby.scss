@@ -480,39 +480,34 @@ body.watch-mode.mp-reveal {
     }
 }
 
-// "still in a game": on the menu and on top of the multiplayer entry form
+// "still in a game": on the menu and on top of the multiplayer entry form; text on top, REJOIN below
 
 .mp-resume {
+    position: relative;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 0.6em;
     width: min(360px, 100%);
-    padding: 0.5em 0.5em 0.5em 1em;
+    padding: 0.8em 1em 1em;
     border: 2px solid variables.$mainColor;
     border-radius: 12px;
     background: rgba(17, 68, 126, 0.15);
-    text-align: left;
-    // narrow phones: the buttons move under the text instead of out of the box
-    flex-wrap: wrap;
     &[hidden] {
         display: none !important;
     }
     .mp-resume-text {
-        flex: 1 1 6em;
+        // room for the ✕ in the corner
+        padding: 0 1.6em;
     }
-    // REJOIN and ✕ wrap as one, on the right
-    .mp-resume-actions {
-        display: flex;
-        gap: 0.4em;
-        margin-left: auto;
-    }
-    button {
-        height: 40px;
-        padding: 0 1em;
+    .mp-resume-join {
+        height: 44px;
         border-radius: 8px;
     }
     .mp-resume-dismiss {
-        padding: 0 0.6em;
+        position: absolute;
+        top: 0.3em;
+        right: 0.3em;
+        padding: 0.2em 0.5em;
         background: transparent;
     }
 }
@@ -523,7 +518,13 @@ body.watch-mode.mp-reveal {
 
 // the entry form makes every button full width and 52px high: the hint keeps its own
 
-#lobby #mpEntry .mp-resume button {
-    width: auto;
-    height: 40px;
+#lobby #mpEntry .mp-resume {
+    .mp-resume-join {
+        height: 44px;
+    }
+    .mp-resume-dismiss {
+        width: auto;
+        height: auto;
+        padding: 0.2em 0.5em;
+    }
 }
