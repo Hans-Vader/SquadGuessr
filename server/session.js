@@ -5,7 +5,7 @@ import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.
 export const MAX_PLAYERS = 12;
 export const MAX_WATCHERS = 20;
 export const GRACE_MS = 1000;
-export const RECONNECT_MS = 15 * 1000;
+export const RECONNECT_MS = 30 * 1000;
 // how long a round waits for slow devices to load its images: the first one cold, later ones were preloaded
 export const LOAD_FIRST_MS = 10 * 1000;
 export const LOAD_MS = 5 * 1000;
@@ -61,7 +61,7 @@ export class Session {
         if (token && this.kicked.has(token)) return this.error(conn, "KICKED");
         const known = token ? this.findPlayer(p => p.token === token) : null;
         if (known) return this.reconnect(known, conn);
-        if (this.phase !== "lobby") return this.error(conn, "GAME_RUNNING");
+        if (!this.joinable()) return this.error(conn, "GAME_RUNNING");
         const clean = cleanName(name);
         if (!clean) return this.error(conn, "INVALID");
         const same = this.findPlayer(p => p.name.toLowerCase() === clean.toLowerCase());
@@ -70,9 +70,12 @@ export class Session {
         if (same) this.players.delete(same.id);
         if (this.players.size >= MAX_PLAYERS) return this.error(conn, "SESSION_FULL");
         const player = this.addPlayer(conn, clean);
+        this.freshWait();
         if (same?.id === this.hostId) this.hostId = player.id;
         this.welcome(player);
         this.broadcastState();
+        // joined during the countdown: round 1's images to load
+        this.sendPhase(conn);
         return true;
     }
 
@@ -82,6 +85,16 @@ export class Session {
         this.send(conn, this.stateMsg());
         this.sendPhase(conn);
         return true;
+    }
+
+    /**
+     * Tells a page whether its stored token still belongs to a game it can go back to (the REJOIN hint).
+     * Connects nobody and changes nothing: the way back in is join with that token
+     */
+    check(conn, token) {
+        const player = this.findPlayer(p => p.token === token);
+        if (!player || this.over()) return this.error(conn, "SESSION_NOT_FOUND");
+        this.send(conn, { type: "resumable", code: this.code, phase: this.phase, round: this.round, total: this.guesses.length || this.settings.rounds });
     }
 
     disconnect(conn) {
@@ -180,8 +193,6 @@ export class Session {
         this.guesses = [];
         this.startsAt = null;
         this.loadUntil = null;
-        // like the lobby: who pressed LEAVE during the countdown (leave() zeroes awayUntil) is gone, a dropped connection keeps its place
-        this.players.forEach(p => { if (!p.connected && p.awayUntil === 0) this.players.delete(p.id); });
         this.resetScores();
         this.broadcastState();
     }
@@ -211,6 +222,20 @@ export class Session {
      */
     allReady() {
         return [...this.players.values()].every(p => !p.connected || p.id === this.hostId || p.lobbyReady);
+    }
+
+    /**
+     * Round 1 has not begun (lobby or its start countdown): players come and go like in the lobby
+     */
+    joinable() {
+        return this.phase === "lobby" || (this.phase === "loading" && this.round === 0);
+    }
+
+    /**
+     * The final, or already the last reveal: players see their results there without waiting for the host's "next"
+     */
+    over() {
+        return this.phase === "final" || (this.phase === "reveal" && this.round + 1 === this.guesses.length);
     }
 
     /**
@@ -284,12 +309,15 @@ export class Session {
     }
 
     /**
-     * Explicit "leave": frees name and slot in the lobby; during a game the player stays in the ranking, offline.
+     * Explicit "leave": in the lobby it frees name and slot for good, and the others are told who left. From the start
+     * countdown on the player stays in the ranking, offline, and can come back with their token (the REJOIN hint).
      * Unlike a dropped connection it takes effect at once: a leaving host hands the role over right away.
      */
     leave(player) {
         if (this.phase === "lobby") {
             this.players.delete(player.id);
+            // a kick is the host's own doing (kick() bans the token before it gets here): no notice for that
+            if (!this.kicked.has(player.token)) this.broadcast({ type: "left", name: player.name });
         } else {
             player.conn = null;
             player.connected = false;
@@ -341,9 +369,8 @@ export class Session {
             player.backAt = this.now();
             return this.broadcastState();
         }
-        // the last reveal counts as over: players see their results without waiting for the host's "next"
-        const lastReveal = this.phase === "reveal" && this.round + 1 === this.guesses.length;
-        if (this.phase !== "final" && !lastReveal) return this.error(player.conn, "INVALID");
+        // also from the last reveal: players see their results there without waiting for the host's "next"
+        if (!this.over()) return this.error(player.conn, "INVALID");
         this.phase = "lobby";
         this.guesses = [];
         this.round = 0;
@@ -476,12 +503,18 @@ export class Session {
         // a reload loses the preloaded images: the client reports them again for the prepare that sendPhase resends
         player.ready = Math.min(player.ready, this.round - 1);
         player.stalled = false;
-        // everyone was away when loadUntil passed: the first one back gets a fresh wait, not a clock that starts at once
-        if (this.phase === "loading" && this.now() >= this.loadUntil) this.loadUntil = this.now() + LOAD_MS;
+        this.freshWait();
         this.welcome(player);
         this.broadcastState();
         this.sendPhase(conn);
         return true;
+    }
+
+    /**
+     * Everyone was away when loadUntil passed: whoever comes (back) first gets a fresh wait, not a clock that starts at once
+     */
+    freshWait() {
+        if (this.phase === "loading" && this.now() >= this.loadUntil) this.loadUntil = this.now() + LOAD_MS;
     }
 
     sendPhase(conn) {

@@ -519,3 +519,56 @@ body.watch-mode.mp-reveal {
         }
     }
 }
+
+// "still in a game": on the menu and on top of the multiplayer entry form; text on top, REJOIN below
+
+.mp-resume {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    width: min(360px, 100%);
+    padding: 0.8em 1em 1em;
+    border: 2px solid variables.$mainColor;
+    border-radius: 12px;
+    background: rgba(17, 68, 126, 0.15);
+    &[hidden] {
+        display: none !important;
+    }
+    .mp-resume-text {
+        // room for the ✕ in the corner
+        padding: 0 1.6em;
+    }
+    .mp-resume-join {
+        height: 44px;
+        // the global 18px button padding leaves 8px for the text in 44px, which pushes it below the middle
+        padding: 0 1em;
+        border-radius: 8px;
+        // like the entry form's buttons: the global 1.6em (desktop) is meant for the big menu buttons
+        font-size: 1.05em;
+    }
+    .mp-resume-dismiss {
+        position: absolute;
+        top: 0.3em;
+        right: 0.3em;
+        padding: 0.2em 0.5em;
+        background: transparent;
+    }
+}
+
+#menu .mp-resume {
+    margin-bottom: 2em;
+}
+
+// the entry form makes every button full width and 52px high: the hint keeps its own
+
+#lobby #mpEntry .mp-resume {
+    .mp-resume-join {
+        height: 44px;
+    }
+    .mp-resume-dismiss {
+        width: auto;
+        height: auto;
+        padding: 0.2em 0.5em;
+    }
+}

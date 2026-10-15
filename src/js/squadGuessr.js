@@ -158,6 +158,8 @@ export default class SquadGuessr {
         this.BUTTON_PLAYAGAIN.on("click", () => this.mp.active ? this.mp.send({ type: "lobby" }) : this.startNewGame());
         this.BUTTON_SHARE.on("click", () => this.copyResults());
         this.MAIN_LOGO.on("click", () => {
+            // a "no" to leaving the lobby changes nothing at all
+            if (this.mp.active && !this.mp.confirmLeave()) return;
             this.stopTimer();
             if (this.mp.active) return this.mp.leave();
             this.toMenu();
@@ -562,6 +564,9 @@ export default class SquadGuessr {
     // ===== UI MANAGEMENT =====
 
     switchUI(page) {
+
+        // the menu and the multiplayer entry form offer the way back into a game this browser dropped out of
+        if (!this.mp.active && (page === "menu" || page === "lobby")) this.mp.checkResume();
 
         // every page plus the footer logos: whatever a state does not show gets hidden
         const parts = ["#menu", "#timer_ui", "#map_ui", "#results", "#lobby", "#submit", "#review", "#footerLogos"];

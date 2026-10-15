@@ -152,3 +152,23 @@ test("a client that stops reading is dropped instead of buffering replies foreve
     for (let i = 0; i < 300000; i++) attacker.send("x");
     while (client.wss.clients.size > 0) await tick(50);
 });
+
+test("check answers on its own socket, counts as its one greeting and makes it nobody in the session", { timeout: 5000 }, async (t) => {
+    const client = await serve(t);
+    const host = await client();
+    host.sendJson(CREATE);
+    const { code, token } = await host.next("welcome");
+
+    const probe = await client();
+    probe.sendJson({ type: "check", code: code.toLowerCase(), token });
+    const answer = await probe.next("resumable");
+    assert.deepEqual([answer.code, answer.phase, answer.round, answer.total], [code, "lobby", 0, 3]);
+    probe.sendJson({ type: "join", code, name: "Eve" });
+    assert.equal((await probe.next("error")).code, "INVALID");
+    probe.sendJson({ type: "lobbyReady", ready: true });
+    assert.equal((await probe.next("error")).code, "INVALID");
+
+    const stranger = await client();
+    stranger.sendJson({ type: "check", code: "ZZZZ", token });
+    assert.equal((await stranger.next("error")).code, "SESSION_NOT_FOUND");
+});
