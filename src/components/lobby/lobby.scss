@@ -172,7 +172,7 @@
     margin: 1em auto;
     // one grid for the whole list so every row shares the same column widths
     display: grid;
-    grid-template-columns: 2.5em 1em 1fr auto auto;
+    grid-template-columns: 2.5em 1.4em 1fr auto auto;
     align-content: start;
     li {
         display: grid;
@@ -184,6 +184,22 @@
         border-bottom: 1px solid #333;
         &.me {
             background: rgba(17, 68, 126, 0.3);
+        }
+    }
+    // drawn, not ▲/▼: Montserrat has no such glyphs and every fallback font puts them at another height
+    .move {
+        place-self: center;
+        &.up,
+        &.down {
+            width: 0.9em;
+            height: 0.75em;
+            background: currentcolor;
+        }
+        &.up {
+            clip-path: polygon(50% 0, 100% 100%, 0 100%);
+        }
+        &.down {
+            clip-path: polygon(0 0, 100% 0, 50% 100%);
         }
     }
     .points,

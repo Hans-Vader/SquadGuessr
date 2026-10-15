@@ -727,7 +727,7 @@ export default class Multiplayer {
             const move = moves[row.id];
             // always there, empty without a move: the columns of every ranking line up
             const $move = $("<span class=\"move\">");
-            if (move) $move.addClass(move).text(move === "up" ? "▲" : "▼").attr({ role: "img", "aria-label": i18next.t(`mp.${move}`, { ns: "common" }) });
+            if (move) $move.addClass(move).attr({ role: "img", "aria-label": i18next.t(`mp.${move}`, { ns: "common" }) });
             $("<li>")
                 .attr("data-id", row.id)
                 .toggleClass("me", row.id === this.me)
