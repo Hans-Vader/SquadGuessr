@@ -985,3 +985,19 @@ test("the reconnect window is 30 s: long enough for a quick app switch or a trip
     s.tick();
     assert.equal(s.phase, "reveal");
 });
+
+test("someone new who joins the countdown after everyone left still gets the time to load round 1", () => {
+    const { s, host, guest, advance } = withGuest();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.disconnect(host);
+    s.disconnect(guest);
+    advance(COUNTDOWN_FORCED_MS + LOAD_FIRST_MS);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    const late = {};
+    assert.equal(s.join(late, { name: "Late" }), true);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    s.handle(late, { type: "ready", index: 0 });
+    assert.equal(s.phase, "round");
+});

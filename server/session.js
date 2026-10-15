@@ -66,6 +66,7 @@ export class Session {
         if (same) this.players.delete(same.id);
         if (this.players.size >= MAX_PLAYERS) return this.error(conn, "SESSION_FULL");
         const player = this.addPlayer(conn, clean);
+        this.freshWait();
         if (same?.id === this.hostId) this.hostId = player.id;
         this.welcome(player);
         this.broadcastState();
@@ -459,12 +460,18 @@ export class Session {
         // a reload loses the preloaded images: the client reports them again for the prepare that sendPhase resends
         player.ready = Math.min(player.ready, this.round - 1);
         player.stalled = false;
-        // everyone was away when loadUntil passed: the first one back gets a fresh wait, not a clock that starts at once
-        if (this.phase === "loading" && this.now() >= this.loadUntil) this.loadUntil = this.now() + LOAD_MS;
+        this.freshWait();
         this.welcome(player);
         this.broadcastState();
         this.sendPhase(conn);
         return true;
+    }
+
+    /**
+     * Everyone was away when loadUntil passed: whoever comes (back) first gets a fresh wait, not a clock that starts at once
+     */
+    freshWait() {
+        if (this.phase === "loading" && this.now() >= this.loadUntil) this.loadUntil = this.now() + LOAD_MS;
     }
 
     sendPhase(conn) {
