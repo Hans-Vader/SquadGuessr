@@ -973,3 +973,15 @@ test("leaving the lobby tells everyone else who left; a kick, a dropped connecti
     s.handle(bob, { type: "leave" });
     assert.deepEqual(all(host, "left"), left);
 });
+
+test("the reconnect window is 30 s: long enough for a quick app switch or a trip to another page and back", () => {
+    const { s, host, guest, advance } = started();
+    s.disconnect(guest);
+    s.handle(host, { type: "answer", index: s.round, lat: -100, lng: 200 });
+    advance(29 * 1000);
+    s.tick();
+    assert.equal(s.phase, "round");
+    advance(1000);
+    s.tick();
+    assert.equal(s.phase, "reveal");
+});
