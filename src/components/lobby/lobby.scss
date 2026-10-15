@@ -492,11 +492,19 @@ body.watch-mode.mp-reveal {
     border-radius: 12px;
     background: rgba(17, 68, 126, 0.15);
     text-align: left;
+    // narrow phones: the buttons move under the text instead of out of the box
+    flex-wrap: wrap;
     &[hidden] {
         display: none !important;
     }
     .mp-resume-text {
-        flex: 1;
+        flex: 1 1 6em;
+    }
+    // REJOIN and ✕ wrap as one, on the right
+    .mp-resume-actions {
+        display: flex;
+        gap: 0.4em;
+        margin-left: auto;
     }
     button {
         height: 40px;
