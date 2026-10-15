@@ -82,6 +82,16 @@ export class Session {
         return true;
     }
 
+    /**
+     * Tells a page whether its stored token still belongs to a game it can go back to (the REJOIN hint).
+     * Connects nobody and changes nothing: the way back in is join with that token
+     */
+    check(conn, token) {
+        const player = this.findPlayer(p => p.token === token);
+        if (!player || this.over()) return this.error(conn, "SESSION_NOT_FOUND");
+        this.send(conn, { type: "resumable", code: this.code, phase: this.phase, round: this.round, total: this.guesses.length || this.settings.rounds });
+    }
+
     disconnect(conn) {
         this.touch();
         this.watchers.delete(conn);
@@ -196,6 +206,13 @@ export class Session {
      */
     joinable() {
         return this.phase === "lobby" || (this.phase === "loading" && this.round === 0);
+    }
+
+    /**
+     * The final, or already the last reveal: players see their results there without waiting for the host's "next"
+     */
+    over() {
+        return this.phase === "final" || (this.phase === "reveal" && this.round + 1 === this.guesses.length);
     }
 
     /**
@@ -315,10 +332,8 @@ export class Session {
     }
 
     toLobby(conn) {
-        // the last reveal counts as over: players see their results without waiting for the host's "next",
-        // and one of them may have become host there
-        const lastReveal = this.phase === "reveal" && this.round + 1 === this.guesses.length;
-        if (this.phase !== "final" && !lastReveal) return this.error(conn, "INVALID");
+        // also from the last reveal: one of the players on their results may have become host there
+        if (!this.over()) return this.error(conn, "INVALID");
         this.phase = "lobby";
         this.guesses = [];
         this.round = 0;

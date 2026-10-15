@@ -44,7 +44,7 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
     };
 
     const route = (ws, msg) => {
-        if (["create", "join", "watch"].includes(msg.type)) {
+        if (["create", "join", "watch", "check"].includes(msg.type)) {
             // the client opens a new socket for every attempt: one per socket means spamming sessions or guessing codes costs a connection each
             if (ws.greeted) return send(ws, { type: "error", code: "INVALID" });
             ws.greeted = true;
@@ -60,9 +60,11 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
             }
             return;
         }
-        if (msg.type === "join" || msg.type === "watch") {
+        if (["join", "watch", "check"].includes(msg.type)) {
             const session = typeof msg.code === "string" && sessions.get(msg.code.toUpperCase());
             if (!session) return send(ws, { type: "error", code: "SESSION_NOT_FOUND" });
+            // a check binds nothing: its close is no player leaving and no activity that keeps an orphaned session alive
+            if (msg.type === "check") return session.check(ws, msg.token);
             const ok = msg.type === "join" ? session.join(ws, msg) : session.watch(ws);
             if (ok) sessionOf.set(ws, session);
             return;

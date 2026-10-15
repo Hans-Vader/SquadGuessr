@@ -869,3 +869,63 @@ test("a guest whose connection dropped in the lobby keeps their place through a 
     assert.equal(s.join(phone, { token }), true);
     assert.equal(last(phone, "welcome").playerId, last(guest, "welcome").playerId);
 });
+
+test("check tells a token that can come back where the game is, and changes nothing", () => {
+    const { s, sent, host, guest, last, advance } = withGuest();
+    s.join({}, { name: "Ida" });
+    const { playerId, token } = last(guest, "welcome");
+    s.disconnect(guest);
+    // only the probe hears back: no broadcast, and the player stays offline
+    const check = () => {
+        const conn = {};
+        const before = sent.length;
+        s.check(conn, token);
+        assert.equal(sent.length, before + 1);
+        assert.equal(s.players.get(playerId).connected, false);
+        return sent.at(-1).msg;
+    };
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "lobby", round: 0, total: 3 });
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "loading", round: 0, total: 3 });
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "round", round: 0, total: 3 });
+    s.handle(host, { type: "endRound" });
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "reveal", round: 0, total: 3 });
+});
+
+test("check turns away an unknown or odd token, a kicked player, who left the lobby, and a game that is over", () => {
+    const { s, host, guest, last, begin } = withGuest();
+    const answer = (token) => {
+        const conn = {};
+        s.check(conn, token);
+        return last(conn, "resumable") ? "resumable" : last(conn, "error").code;
+    };
+    assert.equal(answer("nope"), "SESSION_NOT_FOUND");
+    assert.equal(answer(undefined), "SESSION_NOT_FOUND");
+    assert.equal(answer({ toString: 1 }), "SESSION_NOT_FOUND");
+    const ida = {};
+    s.join(ida, { name: "Ida" });
+    s.handle(host, { type: "kick", playerId: last(ida, "welcome").playerId });
+    assert.equal(answer(last(ida, "welcome").token), "SESSION_NOT_FOUND");
+    const ana = {};
+    s.join(ana, { name: "Ana" });
+    s.handle(ana, { type: "leave" });
+    assert.equal(answer(last(ana, "welcome").token), "SESSION_NOT_FOUND");
+    // the last round is still worth coming back for, its reveal and the final are not
+    const token = last(guest, "welcome").token;
+    begin();
+    for (let i = 0; i < 2; i++) {
+        s.handle(host, { type: "endRound" });
+        readyAll(s, s.round + 1);
+        s.handle(host, { type: "next" });
+    }
+    assert.equal(answer(token), "resumable");
+    s.handle(host, { type: "endRound" });
+    assert.equal(s.phase, "reveal");
+    assert.equal(answer(token), "SESSION_NOT_FOUND");
+    s.handle(host, { type: "next" });
+    assert.equal(s.phase, "final");
+    assert.equal(answer(token), "SESSION_NOT_FOUND");
+});
