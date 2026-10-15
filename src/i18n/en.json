@@ -80,6 +80,8 @@
         "joinLinkCopied": "Join link copied",
         "watchLinkCopied": "Watch link copied",
         "you": "You",
+        "up": "moved up",
+        "down": "moved down",
         "kick": "Remove {{name}}",
         "onResults": "Still looking at the results",
         "makeHost": "Make {{name}} host",

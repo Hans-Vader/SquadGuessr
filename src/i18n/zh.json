@@ -80,6 +80,8 @@
         "joinLinkCopied": "加入链接已复制",
         "watchLinkCopied": "观看链接已复制",
         "you": "你",
+        "up": "排名上升",
+        "down": "排名下降",
         "kick": "移除 {{name}}",
         "onResults": "仍在查看结果",
         "makeHost": "将 {{name}} 设为房主",

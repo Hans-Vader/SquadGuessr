@@ -93,3 +93,19 @@ export function scoreAnswer(mode, guess, answer) {
     const d = distance(guess, answer);
     return { distance: d, points: pointsForDistance(d, mapSize(guess.map)).points };
 }
+
+/**
+ * Who moved up or down with this round's points: { id: "up" | "down" }, unmoved players left out.
+ * A place is 1 + the number of players ahead, so equal scores share it and the sort order of a tie moves nobody
+ */
+export function rankMoves(results) {
+    const place = (score, scores) => scores.filter(s => s > score).length;
+    const after = results.map(r => r.score);
+    const before = results.map(r => r.score - r.points);
+    const moves = {};
+    results.forEach((r, i) => {
+        const change = place(before[i], before) - place(after[i], after);
+        if (change) moves[r.id] = change > 0 ? "up" : "down";
+    });
+    return moves;
+}

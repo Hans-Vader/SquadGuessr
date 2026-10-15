@@ -6,6 +6,7 @@ import { updateOffset, secondsUntil } from "./clock.js";
 import { copyText } from "./clipboard.js";
 import Preloader from "./preloader.js";
 import { findMap, basemapUrl } from "./data/maps.js";
+import { rankMoves } from "./scoring.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 // NEXT / RESULTS stay locked until the server answers, or at most this long (e.g. the connection just dropped)
@@ -679,7 +680,8 @@ export default class Multiplayer {
             $("#mapName").text(`${mine.points} ${i18next.t("shared.points", { ns: "common" })}`).fadeIn();
         }
 
-        this.renderRanking($("#mpRanking"), msg.results);
+        // round 1 has no places to leave: everybody started at 0
+        this.renderRanking($("#mpRanking"), msg.results, [], msg.index > 0 ? rankMoves(msg.results) : {});
         $("#mpRanking").prop("hidden", false);
 
         app.INPUT_GUESS.prop("hidden", true);
@@ -797,14 +799,19 @@ export default class Multiplayer {
         return p.ready ? "" : "⏳";
     }
 
-    renderRanking($list, rows, winners = []) {
+    renderRanking($list, rows, winners = [], moves = {}) {
         $list.empty();
         rows.forEach((row, i) => {
+            const move = moves[row.id];
+            // always there, empty without a move: the columns of every ranking line up
+            const $move = $("<span class=\"move\">");
+            if (move) $move.addClass(move).text(move === "up" ? "▲" : "▼").attr({ role: "img", "aria-label": i18next.t(`mp.${move}`, { ns: "common" }) });
             $("<li>")
                 .attr("data-id", row.id)
                 .toggleClass("me", row.id === this.me)
                 .append(
                     $("<span class=\"rank\">").text(winners.includes(row.id) ? "🏆" : `${i + 1}.`),
+                    $move,
                     $("<span class=\"name\">").text(row.name),
                     $("<span class=\"points\">").text(row.points === undefined ? "" : `+${row.points}`),
                     $("<span class=\"score\">").text(row.score)
