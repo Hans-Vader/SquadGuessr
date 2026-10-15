@@ -57,7 +57,7 @@ export class Session {
         if (token && this.kicked.has(token)) return this.error(conn, "KICKED");
         const known = token ? this.findPlayer(p => p.token === token) : null;
         if (known) return this.reconnect(known, conn);
-        if (this.phase !== "lobby") return this.error(conn, "GAME_RUNNING");
+        if (!this.joinable()) return this.error(conn, "GAME_RUNNING");
         const clean = cleanName(name);
         if (!clean) return this.error(conn, "INVALID");
         const same = this.findPlayer(p => p.name.toLowerCase() === clean.toLowerCase());
@@ -69,6 +69,8 @@ export class Session {
         if (same?.id === this.hostId) this.hostId = player.id;
         this.welcome(player);
         this.broadcastState();
+        // joined during the countdown: round 1's images to load
+        this.sendPhase(conn);
         return true;
     }
 
@@ -158,8 +160,6 @@ export class Session {
         this.guesses = [];
         this.startsAt = null;
         this.loadUntil = null;
-        // like the lobby: who pressed LEAVE during the countdown (leave() zeroes awayUntil) is gone, a dropped connection keeps its place
-        this.players.forEach(p => { if (!p.connected && p.awayUntil === 0) this.players.delete(p.id); });
         this.resetScores();
         this.broadcastState();
     }
@@ -189,6 +189,13 @@ export class Session {
      */
     allReady() {
         return [...this.players.values()].every(p => !p.connected || p.id === this.hostId || p.lobbyReady);
+    }
+
+    /**
+     * Round 1 has not begun (lobby or its start countdown): players come and go like in the lobby
+     */
+    joinable() {
+        return this.phase === "lobby" || (this.phase === "loading" && this.round === 0);
     }
 
     /**
@@ -262,11 +269,11 @@ export class Session {
     }
 
     /**
-     * Explicit "leave": frees name and slot in the lobby; during a game the player stays in the ranking, offline.
+     * Explicit "leave": frees name and slot until round 1 runs; during a game the player stays in the ranking, offline.
      * Unlike a dropped connection it takes effect at once: a leaving host hands the role over right away.
      */
     leave(player) {
-        if (this.phase === "lobby") {
+        if (this.joinable()) {
             this.players.delete(player.id);
         } else {
             player.conn = null;

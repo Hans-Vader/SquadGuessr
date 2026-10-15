@@ -93,6 +93,25 @@ test("new players cannot join a running game", () => {
     assert.equal(last(late, "error").code, "GAME_RUNNING");
 });
 
+test("until round 1 runs, players come and go like in the lobby: who left during the countdown can play again", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(guest, { type: "leave" });
+    assert.deepEqual(last(host, "state").players.map(p => p.name), ["Hans"]);
+    // back without a token (LEAVE dropped it), and someone new: both get round 1's images to load
+    const again = {};
+    const late = {};
+    assert.equal(s.join(again, { name: "Max" }), true);
+    assert.equal(s.join(late, { name: "Late" }), true);
+    assert.deepEqual([last(again, "prepare").index, last(late, "prepare").index], [0, 0]);
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(s.phase, "round");
+    assert.equal(last(again, "round").index, 0);
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected]), [["Hans", true], ["Max", true], ["Late", true]]);
+});
+
 test("only the host may control the game", () => {
     const { s, guest, last } = withGuest();
     s.handle(guest, { type: "start", guesses: GUESSES });
