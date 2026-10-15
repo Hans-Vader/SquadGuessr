@@ -75,6 +75,11 @@
         "kick": "移除 {{name}}",
         "confirmLeave": "确定离开房间吗？之后需要房间码才能重新加入。",
         "left": "{{name}} 离开了房间",
+        "resume": {
+            "lobby": "你仍在房间 {{code}} 中",
+            "game": "游戏 {{code}} 仍在进行 · 第 {{round}}/{{total}} 轮"
+        },
+        "dismissResume": "忽略",
         "buttons": {
             "create": "创建房间",
             "join": "加入",
@@ -83,7 +88,8 @@
             "cancel": "取消",
             "leave": "离开",
             "endRound": "结束回合",
-            "watch": "观看"
+            "watch": "观看",
+            "rejoin": "重新加入"
         },
         "errors": {
             "SESSION_NOT_FOUND": "未找到该房间",

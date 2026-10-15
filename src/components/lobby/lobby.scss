@@ -479,3 +479,43 @@ body.watch-mode.mp-reveal {
         }
     }
 }
+
+// "still in a game": on the menu and on top of the multiplayer entry form
+
+.mp-resume {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    width: min(360px, 100%);
+    padding: 0.5em 0.5em 0.5em 1em;
+    border: 2px solid variables.$mainColor;
+    border-radius: 12px;
+    background: rgba(17, 68, 126, 0.15);
+    text-align: left;
+    &[hidden] {
+        display: none !important;
+    }
+    .mp-resume-text {
+        flex: 1;
+    }
+    button {
+        height: 40px;
+        padding: 0 1em;
+        border-radius: 8px;
+    }
+    .mp-resume-dismiss {
+        padding: 0 0.6em;
+        background: transparent;
+    }
+}
+
+#menu .mp-resume {
+    margin-bottom: 2em;
+}
+
+// the entry form makes every button full width and 52px high: the hint keeps its own
+
+#lobby #mpEntry .mp-resume button {
+    width: auto;
+    height: 40px;
+}

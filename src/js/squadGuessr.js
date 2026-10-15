@@ -565,6 +565,9 @@ export default class SquadGuessr {
 
     switchUI(page) {
 
+        // the menu and the multiplayer entry form offer the way back into a game this browser dropped out of
+        if (!this.mp.active && (page === "menu" || page === "lobby")) this.mp.checkResume();
+
         // every page plus the footer logos: whatever a state does not show gets hidden
         const parts = ["#menu", "#timer_ui", "#map_ui", "#results", "#lobby", "#submit", "#review", "#footerLogos"];
 

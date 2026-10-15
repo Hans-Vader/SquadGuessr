@@ -40,6 +40,10 @@ export default class Multiplayer {
         this.guessFetch = null;
         // ticks the start countdown on between two states, null when none runs
         this.startTimer = null;
+        // the socket of a REJOIN check that is still waiting for its answer, null otherwise
+        this.resumeCheck = null;
+        // the session the REJOIN hint on screen offers
+        this.resumeCode = null;
     }
 
     init() {
@@ -78,6 +82,11 @@ export default class Multiplayer {
         $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
         $("#mpPlayers").on("click", ".mp-kick", (e) => this.send({ type: "kick", playerId: e.currentTarget.dataset.id }));
+        $(".mp-resume-join").on("click", () => this.join(this.resumeCode));
+        $(".mp-resume-dismiss").on("click", () => {
+            this.forget(this.resumeCode);
+            this.closeResume();
+        });
         document.addEventListener("visibilitychange", () => this.onVisible());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
@@ -183,6 +192,8 @@ export default class Multiplayer {
         this.ws = null;
         previous?.close();
         this.hello = hello;
+        // on the way into a session: no hint, and a check still running must not bring it back
+        this.closeResume();
         // a JOIN clicked while a watch attempt still connects makes this a player again
         this.watching = hello.type === "watch";
         this.active = true;
@@ -192,8 +203,7 @@ export default class Multiplayer {
     }
 
     connect() {
-        const protocol = location.protocol === "https:" ? "wss" : "ws";
-        const ws = new WebSocket(`${protocol}://${location.host}/mp`);
+        const ws = new WebSocket(this.socketUrl());
         this.ws = ws;
         this.offset = null;
         ws.onopen = () => {
@@ -209,6 +219,49 @@ export default class Multiplayer {
             clearTimeout(this.retryTimer);
             this.retryTimer = setTimeout(() => this.connect(), RETRY_DELAYS[this.retry++] ?? 5000);
         };
+    }
+
+    socketUrl() {
+        const protocol = location.protocol === "https:" ? "wss" : "ws";
+        return `${protocol}://${location.host}/mp`;
+    }
+
+    /**
+     * Asks the server whether the last session we played in still knows our token, and offers the way back.
+     * On a socket of its own: a check is nobody in the session. No retry: without an answer there is no hint
+     */
+    checkResume() {
+        this.closeResume();
+        const code = localStorage.getItem("mp:last");
+        const token = code && localStorage.getItem(`mp:${code}`);
+        if (!token) return;
+        const ws = new WebSocket(this.socketUrl());
+        this.resumeCheck = ws;
+        ws.onopen = () => ws.send(JSON.stringify({ type: "check", code, token }));
+        ws.onmessage = (event) => {
+            ws.close();
+            // a newer check took over, or we are in a session again by now (e.g. the silent rejoin after a reload)
+            if (this.resumeCheck !== ws || this.active) return;
+            this.resumeCheck = null;
+            const msg = JSON.parse(event.data);
+            if (msg.type !== "resumable") return this.forget(code);
+            this.showResume(msg);
+        };
+    }
+
+    showResume({ code, phase, round, total }) {
+        this.resumeCode = code;
+        const text = phase === "lobby"
+            ? i18next.t("mp.resume.lobby", { ns: "common", code })
+            : i18next.t("mp.resume.game", { ns: "common", code, round: round + 1, total });
+        $(".mp-resume-text").text(text);
+        $(".mp-resume").prop("hidden", false);
+    }
+
+    closeResume() {
+        this.resumeCheck?.close();
+        this.resumeCheck = null;
+        $(".mp-resume").prop("hidden", true);
     }
 
     onVisible() {
