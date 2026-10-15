@@ -88,6 +88,10 @@ export default class Multiplayer {
             this.closeResume();
         });
         document.addEventListener("visibilitychange", () => this.onVisible());
+        // a page left for another one can live on in the back/forward cache with its socket open (the browser even
+        // answers the server's pings), so the game would keep waiting for this player. Closed, it is a dropped
+        // connection with its reconnect window; coming back reconnects (onclose retry / onVisible)
+        window.addEventListener("pagehide", () => this.ws?.close());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
 
