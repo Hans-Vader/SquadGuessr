@@ -23,14 +23,18 @@ const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "k
 /**
  * One multiplayer session: lobby → loading → round → reveal → loading → … → final
  * The first loading is also the start countdown: round 1 never begins before `startsAt`.
+ * Every game after the first one gets a fresh code from the injected `newCode()`; the old ones stay in `past`.
  * Knows nothing about sockets: `send(conn, msg)` is injected and `conn` is opaque.
  * On every phase change `state` is sent before `prepare`/`round`/`reveal`/`final`.
  */
 export class Session {
-    constructor(code, { send, now = Date.now }) {
+    constructor(code, { send, now = Date.now, newCode }) {
         this.code = code;
         this.send = send;
         this.now = now;
+        this.newCode = newCode;
+        // code of a finished game → its final ranking and the tokens of who played it
+        this.past = new Map();
         this.hostId = null;
         this.settings = null;
         this.guesses = [];
@@ -64,11 +68,12 @@ export class Session {
         return true;
     }
 
-    join(conn, { name, token }) {
+    join(conn, { name, token }, code = this.code) {
         // the device first, whatever name it brings; the name only for a newcomer, a player coming back keeps theirs
         if (token && this.refuseKicked(conn, k => k.token === token)) return false;
         const known = token ? this.findPlayer(p => p.token === token) : null;
         if (known) return this.reconnect(known, conn);
+        if (this.isOverFor(code, token)) return this.ended(conn, code);
         if (!this.joinable()) return this.error(conn, "GAME_RUNNING");
         const clean = cleanName(name);
         if (!clean) return this.error(conn, "NAME_INVALID");
@@ -86,6 +91,15 @@ export class Session {
         // joined during the countdown: round 1's images to load
         this.sendPhase(conn);
         return true;
+    }
+
+    /**
+     * What an invite link leads to, asked before anyone types a name: takes no place and watches nothing
+     */
+    peek(conn, code, token) {
+        if (this.isOverFor(code, token)) return this.ended(conn, code);
+        if (!this.joinable()) return this.error(conn, "GAME_RUNNING");
+        this.send(conn, { type: "joinable" });
     }
 
     watch(conn) {
@@ -401,6 +415,9 @@ export class Session {
         }
         // also from the last reveal: players see their results there without waiting for the host's "next"
         if (!this.over()) return this.error(player.conn, "INVALID");
+        // the finished game keeps its code (index.js maps it here and caps how many there are): its link shows the results
+        this.past.set(this.code, { final: this.finalMsg(), tokens: new Set([...this.players.values()].map(p => p.token)) });
+        this.code = this.newCode();
         this.phase = "lobby";
         this.guesses = [];
         this.round = 0;
@@ -411,7 +428,20 @@ export class Session {
         this.players.forEach(p => { p.lobbyReady = false; p.backAt = null; });
         player.backAt = this.now();
         this.resetScores();
+        // everyone still here moves on to the new code with the same token
+        this.players.forEach(p => this.welcome(p));
         this.broadcastState();
+    }
+
+    /**
+     * Whether `code` only leads to results for whoever comes with `token`. A game's own players always get back in;
+     * an earlier game's code leads who played it into the next one while that can still be joined, anyone else to the results
+     */
+    isOverFor(code, token) {
+        if (token && this.findPlayer(p => p.token === token)) return false;
+        const past = this.past.get(code);
+        if (past) return !(this.joinable() && past.tokens.has(token));
+        return this.over();
     }
 
     tick() {
@@ -555,6 +585,15 @@ export class Session {
         if (["round", "reveal"].includes(this.phase) && this.round + 1 < this.guesses.length) {
             this.send(conn, this.prepareMsg(this.round + 1));
         }
+    }
+
+    /**
+     * The results of a game that is over, for someone who did not play it: they get no place and watch nothing
+     */
+    ended(conn, code) {
+        const final = this.past.get(code)?.final ?? this.finalMsg();
+        this.send(conn, { ...final, type: "ended" });
+        return false;
     }
 
     welcome(player) {
