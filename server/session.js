@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { scoreAnswer, mapSize } from "../src/js/scoring.js";
-import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.js";
+import { CHAT_MAX, CHAT_GAP_MS, CHAT_HISTORY } from "../src/js/chatLimits.js";
+import { cleanName, cleanText, validSettings, validGuesses, validAnswer } from "./validate.js";
 
 export const MAX_PLAYERS = 12;
 export const MAX_WATCHERS = 20;
@@ -12,6 +13,8 @@ export const LOAD_MS = 5 * 1000;
 // every start counts down so all devices load round 1 meanwhile; longer when not every guest is ready yet
 export const COUNTDOWN_READY_MS = 5 * 1000;
 export const COUNTDOWN_FORCED_MS = 15 * 1000;
+// how long whoever was kicked has to wait before they may join again
+export const KICK_WAIT_MS = 30 * 1000;
 
 const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "lobby", "kick"];
 
@@ -36,7 +39,10 @@ export class Session {
         this.startsAt = null;
         this.players = new Map();
         this.watchers = new Set();
-        this.kicked = new Set();
+        // who was kicked, until when: the device by its token, another device by the name ({ token, name, until })
+        this.kicked = [];
+        // the last CHAT_HISTORY lines: { id, name, text }
+        this.messages = [];
         this.lastActivity = now();
     }
 
@@ -44,7 +50,8 @@ export class Session {
 
     create(conn, { name, settings }) {
         const clean = cleanName(name);
-        if (!clean || !validSettings(settings)) return this.error(conn, "INVALID");
+        if (!clean) return this.error(conn, "NAME_INVALID");
+        if (!validSettings(settings)) return this.error(conn, "INVALID");
         this.settings = pickSettings(settings);
         const player = this.addPlayer(conn, clean);
         this.hostId = player.id;
@@ -54,12 +61,14 @@ export class Session {
     }
 
     join(conn, { name, token }) {
-        if (token && this.kicked.has(token)) return this.error(conn, "KICKED");
+        // the device first, whatever name it brings; the name only for a newcomer, a player coming back keeps theirs
+        if (token && this.refuseKicked(conn, k => k.token === token)) return false;
         const known = token ? this.findPlayer(p => p.token === token) : null;
         if (known) return this.reconnect(known, conn);
         if (this.phase !== "lobby") return this.error(conn, "GAME_RUNNING");
         const clean = cleanName(name);
-        if (!clean) return this.error(conn, "INVALID");
+        if (!clean) return this.error(conn, "NAME_INVALID");
+        if (this.refuseKicked(conn, k => k.name === clean.toLowerCase())) return false;
         const same = this.findPlayer(p => p.name.toLowerCase() === clean.toLowerCase());
         if (same?.connected) return this.error(conn, "NAME_TAKEN");
         // someone who dropped out of the lobby may come back without their token (other device, other tab): same name, their place
@@ -102,6 +111,7 @@ export class Session {
         if (msg.type === "answer") return this.answer(player, msg);
         if (msg.type === "ready") return this.ready(player, msg.index);
         if (msg.type === "lobbyReady") return this.lobbyReady(player, msg.ready);
+        if (msg.type === "chat") return this.chat(player, msg.text);
         if (msg.type === "leave") return this.leave(player);
         if (!HOST_ACTIONS.includes(msg.type)) return this.error(conn, "INVALID");
         if (player.id !== this.hostId) return this.error(conn, "NOT_HOST");
@@ -118,7 +128,8 @@ export class Session {
     }
 
     /**
-     * Lobby only, and no ban: whoever is kicked can come back through the invite link, just not with their old token
+     * Lobby only, and no ban: whoever is kicked can come back through the invite link once KICK_WAIT_MS is over
+     * (another browser under another name gets in at once: without accounts nothing tells them apart)
      */
     kick(conn, playerId) {
         if (this.phase !== "lobby" || playerId === this.hostId) return this.error(conn, "INVALID");
@@ -126,8 +137,8 @@ export class Session {
         // already gone (double click, left at the same moment): nothing to do
         if (!player) return;
         // someone offline right now never gets the message: their reconnect with the old token is turned away instead
-        this.kicked.add(player.token);
-        this.error(player.conn, "KICKED");
+        this.kicked.push({ token: player.token, name: player.name.toLowerCase(), until: this.now() + KICK_WAIT_MS });
+        this.error(player.conn, "KICKED", { seconds: KICK_WAIT_MS / 1000 });
         this.leave(player);
     }
 
@@ -234,6 +245,25 @@ export class Session {
         if (this.phase !== "lobby" || typeof ready !== "boolean" || player.lobbyReady === ready) return;
         player.lobbyReady = ready;
         this.broadcastState();
+    }
+
+    /**
+     * A chat line for every player, watchers never see it (the big screen is often on a projector or a stream).
+     * Ignored silently during a running round, where it would only distract from guessing: a line sent just as
+     * the round starts is normal. Too fast is an error, so the client keeps the text for another try.
+     */
+    chat(player, text) {
+        if (this.phase === "round") return;
+        // before the cleaning, the only part that costs: a flood of lines must not cost more than a comparison each.
+        // Half the client's pause: a line the network held up must not be turned away because the next came on time
+        if (this.now() - player.chatAt < CHAT_GAP_MS / 2) return this.error(player.conn, "CHAT_TOO_FAST");
+        const clean = cleanText(text, CHAT_MAX);
+        if (!clean) return;
+        player.chatAt = this.now();
+        const line = { id: player.id, name: player.name, text: clean };
+        // a new array: a welcome already handed out keeps the history it was sent with
+        this.messages = [...this.messages, line].slice(-CHAT_HISTORY);
+        this.sendPlayers({ type: "chat", ...line });
     }
 
     startRound() {
@@ -421,7 +451,7 @@ export class Session {
     // ===== HELPERS =====
 
     addPlayer(conn, name) {
-        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false };
+        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, chatAt: -Infinity };
         this.players.set(player.id, player);
         return player;
     }
@@ -453,7 +483,7 @@ export class Session {
     }
 
     welcome(player) {
-        this.send(player.conn, { type: "welcome", playerId: player.id, token: player.token, code: this.code, isHost: player.id === this.hostId });
+        this.send(player.conn, { type: "welcome", playerId: player.id, token: player.token, code: this.code, isHost: player.id === this.hostId, chat: this.messages });
     }
 
     resetScores() {
@@ -465,13 +495,32 @@ export class Session {
     }
 
     broadcast(msg) {
-        this.players.forEach(p => { if (p.conn) this.send(p.conn, msg); });
+        this.sendPlayers(msg);
         this.watchers.forEach(conn => this.send(conn, msg));
     }
 
-    error(conn, code) {
-        if (conn) this.send(conn, { type: "error", code });
+    /**
+     * To every connected player, never to a watcher
+     */
+    sendPlayers(msg) {
+        this.players.forEach(p => { if (p.conn) this.send(p.conn, msg); });
+    }
+
+    error(conn, code, details = {}) {
+        if (conn) this.send(conn, { type: "error", code, ...details });
         return false;
+    }
+
+    /**
+     * Turns away whoever matches a kick that is not over yet, telling them how long is left. True if turned away
+     */
+    refuseKicked(conn, match) {
+        const now = this.now();
+        // over is forgotten: the list never outgrows the kicks of the last KICK_WAIT_MS
+        this.kicked = this.kicked.filter(k => k.until > now);
+        const kick = this.kicked.find(match);
+        if (kick) this.error(conn, "KICKED", { seconds: Math.ceil((kick.until - now) / 1000) });
+        return Boolean(kick);
     }
 
     /**

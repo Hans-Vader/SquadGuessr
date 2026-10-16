@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS } from "./session.js";
+import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS, KICK_WAIT_MS } from "./session.js";
+import { CHAT_MAX, CHAT_GAP_MS, CHAT_HISTORY } from "../src/js/chatLimits.js";
 import { mapSize } from "../src/js/scoring.js";
 
 const CLASSIC = { mode: "classic", timer: 0, rounds: 3 };
@@ -339,17 +340,27 @@ test("leaving the lobby frees the name and the slot", () => {
     assert.equal(s.join(again, { name: "Max" }), true);
 });
 
-test("the host can kick a player from the lobby: they are told, their old token stays out, name and slot are free", () => {
-    const { s, host, guest, last } = withGuest();
+test("a kicked player is told and may come back only after KICK_WAIT_MS: not on that device, not under that name", () => {
+    const { s, host, guest, last, advance } = withGuest();
     const { playerId, token } = last(guest, "welcome");
     s.handle(host, { type: "kick", playerId });
-    assert.equal(last(guest, "error").code, "KICKED");
+    assert.deepEqual(last(guest, "error"), { type: "error", code: "KICKED", seconds: KICK_WAIT_MS / 1000 });
     assert.deepEqual(last(host, "state").players.map(p => p.name), ["Hans"]);
-    // offline at the kick, they never got the message: their reconnect must not quietly undo it
+    // offline at the kick, they never got the message: their reconnect must not quietly undo it, whatever name it brings
     const back = {};
-    assert.equal(s.join(back, { name: "Max", token }), false);
+    assert.equal(s.join(back, { name: "Maxi", token }), false);
     assert.equal(last(back, "error").code, "KICKED");
-    assert.equal(s.join({}, { name: "Max" }), true);
+    // another device under the same name (any case) is told how long is left
+    advance(10 * 1000);
+    const other = {};
+    assert.equal(s.join(other, { name: "max" }), false);
+    assert.deepEqual(last(other, "error"), { type: "error", code: "KICKED", seconds: 20 });
+    // the slot is free for anybody else
+    assert.equal(s.join({}, { name: "Ana" }), true);
+    advance(KICK_WAIT_MS - 10 * 1000);
+    const again = {};
+    assert.equal(s.join(again, { name: "Max", token }), true);
+    assert.notEqual(last(again, "welcome").token, token);
 });
 
 test("only the host kicks, never themselves, and only in the lobby", () => {
@@ -849,4 +860,91 @@ test("a guest whose connection dropped in the lobby keeps their place through a 
     const phone = {};
     assert.equal(s.join(phone, { token }), true);
     assert.equal(last(phone, "welcome").playerId, last(guest, "welcome").playerId);
+});
+
+test("a chat line reaches every player, cleaned and capped, but never a watcher", () => {
+    const { s, host, guest, last, all } = withGuest();
+    const tv = {};
+    s.watch(tv);
+    s.handle(guest, { type: "chat", text: "  gg\u200b  wp " });
+    assert.deepEqual(last(host, "chat"), { type: "chat", id: last(guest, "welcome").playerId, name: "Max", text: "gg wp" });
+    assert.equal(last(guest, "chat").text, "gg wp");
+    s.handle(host, { type: "chat", text: "x".repeat(CHAT_MAX + 50) });
+    assert.equal(last(guest, "chat").text, "x".repeat(CHAT_MAX));
+    assert.equal(all(tv, "chat").length, 0);
+});
+
+test("empty chat lines and lines during a running round are ignored silently", () => {
+    const { s, host, guest, all, last } = started();
+    s.handle(guest, { type: "chat", text: "psst, it is Narva" });
+    s.handle(guest, { type: "chat", text: 42 });
+    s.handle(host, { type: "endRound" });
+    s.handle(guest, { type: "chat", text: "  \u200b " });
+    assert.equal(all(host, "chat").length, 0);
+    assert.equal(last(guest, "error"), undefined);
+    // nothing ignored used up the guest's turn
+    s.handle(guest, { type: "chat", text: "close one" });
+    assert.equal(last(host, "chat").text, "close one");
+});
+
+test("the server allows a player a chat line every half CHAT_GAP_MS and tells whoever writes faster", () => {
+    // the client itself waits the whole CHAT_GAP_MS: the other half is room for the network delaying one line more than the next
+    const { s, host, guest, all, last, advance } = withGuest();
+    s.handle(guest, { type: "chat", text: "a" });
+    advance(CHAT_GAP_MS / 2 - 1);
+    s.handle(guest, { type: "chat", text: "b" });
+    assert.equal(last(guest, "error").code, "CHAT_TOO_FAST");
+    // one player's limit holds nobody else up
+    s.handle(host, { type: "chat", text: "c" });
+    advance(1);
+    s.handle(guest, { type: "chat", text: "d" });
+    assert.deepEqual(all(host, "chat").map(m => m.text), ["a", "c", "d"]);
+});
+
+test("whoever joins or comes back gets the last CHAT_HISTORY lines with the welcome", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    for (let i = 0; i < CHAT_HISTORY + 5; i++) {
+        s.handle(host, { type: "chat", text: `line ${i}` });
+        advance(CHAT_GAP_MS);
+    }
+    const late = {};
+    s.join(late, { name: "Ana" });
+    const history = last(late, "welcome").chat;
+    assert.equal(history.length, CHAT_HISTORY);
+    assert.deepEqual(history[0], { id: last(host, "welcome").playerId, name: "Hans", text: "line 5" });
+    assert.equal(history.at(-1).text, `line ${CHAT_HISTORY + 4}`);
+    const token = last(guest, "welcome").token;
+    s.disconnect(guest);
+    const phone = {};
+    s.join(phone, { token });
+    assert.deepEqual(last(phone, "welcome").chat, history);
+});
+
+test("a flood of chat lines is turned away before its text is even looked at", () => {
+    const { s, guest, last } = withGuest();
+    s.handle(guest, { type: "chat", text: "a" });
+    // nothing usable in it, but too fast comes first: cleaning a full frame is the expensive part
+    s.handle(guest, { type: "chat", text: "\u200b" });
+    assert.equal(last(guest, "error").code, "CHAT_TOO_FAST");
+});
+
+test("a name without a letter or a digit is turned away as NAME_INVALID, on create and on join", () => {
+    const sent = [];
+    const fresh = new Session("WXYZ", { send: (conn, msg) => sent.push({ conn, msg }) });
+    assert.equal(fresh.create({}, { name: "🐺🐺", settings: CLASSIC }), false);
+    assert.equal(sent.at(-1).msg.code, "NAME_INVALID");
+    // bad settings stay INVALID
+    assert.equal(fresh.create({}, { name: "Hans", settings: { ...CLASSIC, rounds: 7 } }), false);
+    assert.equal(sent.at(-1).msg.code, "INVALID");
+    const { s, last } = setup();
+    const guest = {};
+    assert.equal(s.join(guest, { name: "---" }), false);
+    assert.equal(last(guest, "error").code, "NAME_INVALID");
+});
+
+test("a look-alike of a player's name is that name: Hans with an invisible mark is NAME_TAKEN", () => {
+    const { s, last } = setup();
+    const fake = {};
+    assert.equal(s.join(fake, { name: "Hans\u034f" }), false);
+    assert.equal(last(fake, "error").code, "NAME_TAKEN");
 });

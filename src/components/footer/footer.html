@@ -18,6 +18,21 @@
     
     </div>
 
+    <!-- multiplayer chat: lobby and between rounds, for players only (Multiplayer.renderChat). In the footer so the toast stays on top of it -->
+    <div id="mpChat">
+        <div id="mpChatPanel" hidden>
+            <div class="mp-chat-head">
+                <span data-i18n="common:mp.chat.title"></span>
+                <button id="BUTTON_MP_CHAT_CLOSE" data-i18n-aria-label="common:mp.chat.close" data-i18n-title="common:mp.chat.close">✕</button>
+            </div>
+            <ol id="mpChatLog" role="log" aria-live="polite"></ol>
+            <form id="mpChatForm">
+                <input type="text" id="mpChatInput" autocomplete="off" enterkeyhint="send" data-i18n-placeholder="common:mp.chat.placeholder" />
+            </form>
+        </div>
+        <button id="BUTTON_MP_CHAT" aria-expanded="false" aria-controls="mpChatPanel" data-i18n-aria-label="common:mp.chat.title" data-i18n-title="common:mp.chat.title">💬<span id="mpChatUnread" hidden></span></button>
+    </div>
+
 </footer>
 
 <section id="toast" class="info">
