@@ -645,11 +645,26 @@ body.mp-chat #mpChat {
     }
 }
 
-// wide screens: the open chat is a column of its own next to the room or the game, so it covers nothing
+// wide screens: the open chat is a column of its own at the right edge, and nothing moves that does not have to
 @media (width > 1100px) {
-    // NEXT and the ranking stay visible next to it
-    body.mp-chat-open main {
-        padding-right: calc(340px + 2rem);
+    body.mp-chat-open {
+        // room, game and results only make way where they would reach under it.
+        // The panel, its margin to the edge and a gap before the content:
+        --chat-space: calc(340px + 2rem);
+        // lobby and results keep their content (about 430px) in the middle: moved left only as far as it would reach
+        // under the chat, centred in what is left, so from about 1200px on it keeps its place
+        --chat-make-way: clamp(0px, calc(2 * var(--chat-space) + 440px - 100vw), var(--chat-space));
+    }
+    body.mp-chat-open #lobby {
+        padding-right: calc(1em + var(--chat-make-way));
+    }
+    body.mp-chat-open #results {
+        padding-right: calc(2em + var(--chat-make-way));
+    }
+    // the game (up to 1400px wide with 4em inside, index.scss and game.scss) keeps its left edge and only gets
+    // narrower on the right, just enough to end before the chat: NEXT and the ranking stay visible next to it
+    body.mp-chat-open #map_ui {
+        padding-right: max(0px, calc(var(--chat-space) - 4em + (min(1400px, 100vw) - 100vw) / 2));
     }
     // as high as main (index.scss)
     #mpChatPanel {
