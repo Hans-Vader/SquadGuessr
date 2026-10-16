@@ -98,6 +98,11 @@
             "game": "游戏 {{code}} 仍在进行 · 第 {{round}}/{{total}} 轮"
         },
         "dismissResume": "忽略",
+        "chat": {
+            "title": "聊天",
+            "close": "关闭聊天",
+            "placeholder": "输入消息…"
+        },
         "buttons": {
             "create": "创建房间",
             "join": "加入",
@@ -112,6 +117,7 @@
         "errors": {
             "SESSION_NOT_FOUND": "未找到该房间",
             "NAME_TAKEN": "该名字已被使用",
+            "NAME_INVALID": "名字只能包含字母、数字以及 - _ . '",
             "GAME_RUNNING": "游戏已经开始",
             "SESSION_FULL": "房间已满",
             "NOT_HOST": "只有房主可以这样做",
@@ -121,7 +127,8 @@
             "SERVER_BUSY": "当前房间数过多，请稍后再试",
             "REPLACED": "你已在其他标签页或设备上继续游戏",
             "NO_PLAYERS": "至少需要另一名玩家加入",
-            "KICKED": "房主已将你移出房间"
+            "KICKED": "房主已将你移出房间，{{seconds}} 秒后可重新加入",
+            "CHAT_TOO_FAST": "发送太快，请稍等"
         }
     },
     "submit": {
