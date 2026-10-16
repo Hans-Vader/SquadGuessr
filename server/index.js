@@ -10,6 +10,8 @@ const HEARTBEAT_MS = 30 * 1000;
 const MAX_SESSIONS = 1000;
 // far above any burst a real client needs; a client that stops reading must not make us queue replies forever
 const MAX_BUFFERED = 64 * 1024;
+// what a client may send first on a socket, besides "create"
+const ENTRY = ["join", "watch", "peek"];
 
 /**
  * Multiplayer session server: routes socket messages to Session instances
@@ -17,6 +19,8 @@ const MAX_BUFFERED = 64 * 1024;
 export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_SESSIONS } = {}) {
     const wss = new WebSocketServer({ port, path: "/mp", maxPayload: 64 * 1024 });
     const sessions = new Map();
+    // the code of a finished game → its session, which plays on under a new code
+    const retired = new Map();
     const sessionOf = new WeakMap();
 
     // a broadcast hands the same msg object to every recipient: serialize it once
@@ -32,19 +36,40 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
         let code;
         do {
             code = Array.from({ length: 4 }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join("");
-        } while (sessions.has(code));
+        } while (sessions.has(code) || retired.has(code));
         return code;
+    };
+
+    // PLAY AGAIN: the session moves on to a new code, the old one keeps leading to it (for its results)
+    const renew = (session) => {
+        const code = newCode();
+        sessions.delete(session.code);
+        sessions.set(code, session);
+        retired.set(session.code, session);
+        // capped like the sessions, which also keeps newCode() far from the end of the code space:
+        // under load the oldest finished games' links stop working first
+        if (retired.size > maxSessions) {
+            const [old, owner] = retired.entries().next().value;
+            retired.delete(old);
+            owner.past.delete(old);
+        }
+        return code;
+    };
+
+    const drop = (session) => {
+        sessions.delete(session.code);
+        session.past.forEach((_, code) => retired.delete(code));
     };
 
     // under load the longest idle session nobody is connected to makes room, so clients that walk away cannot lock others out
     // ponytail: one client holding maxSessions live sockets still fills the server; a per-IP cap needs the real client IP from the proxy chain
     const evictOrphan = () => {
         const oldest = [...sessions.values()].filter(s => s.isIdle(0)).sort((a, b) => a.lastActivity - b.lastActivity)[0];
-        if (oldest) sessions.delete(oldest.code);
+        if (oldest) drop(oldest);
     };
 
     const route = (ws, msg) => {
-        if (["create", "join", "watch"].includes(msg.type)) {
+        if (msg.type === "create" || ENTRY.includes(msg.type)) {
             // the client opens a new socket for every attempt: one per socket means spamming sessions or guessing codes costs a connection each
             if (ws.greeted) return send(ws, { type: "error", code: "INVALID" });
             ws.greeted = true;
@@ -53,17 +78,20 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
             if (sessions.size >= maxSessions) evictOrphan();
             // bounds memory and keeps newCode() far from exhausting the 32^4 code space
             if (sessions.size >= maxSessions) return send(ws, { type: "error", code: "SERVER_BUSY" });
-            const session = new Session(newCode(), { send });
+            const session = new Session(newCode(), { send, newCode: () => renew(session) });
             if (session.create(ws, msg)) {
                 sessions.set(session.code, session);
                 sessionOf.set(ws, session);
             }
             return;
         }
-        if (msg.type === "join" || msg.type === "watch") {
-            const session = typeof msg.code === "string" && sessions.get(msg.code.toUpperCase());
+        if (ENTRY.includes(msg.type)) {
+            const code = typeof msg.code === "string" ? msg.code.toUpperCase() : null;
+            const session = sessions.get(code) ?? retired.get(code);
             if (!session) return send(ws, { type: "error", code: "SESSION_NOT_FOUND" });
-            const ok = msg.type === "join" ? session.join(ws, msg) : session.watch(ws);
+            if (msg.type === "peek") return session.peek(ws, code, msg.token);
+            // watching ignores the code: a big screen on an old link keeps following the session
+            const ok = msg.type === "join" ? session.join(ws, msg, code) : session.watch(ws);
             if (ok) sessionOf.set(ws, session);
             return;
         }
@@ -97,8 +125,8 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
     });
 
     const ticker = setInterval(() => {
-        for (const [code, session] of sessions) {
-            if (session.isIdle(idleMs)) sessions.delete(code);
+        for (const session of sessions.values()) {
+            if (session.isIdle(idleMs)) drop(session);
             else session.tick();
         }
     }, TICK_MS);

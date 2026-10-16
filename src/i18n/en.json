@@ -63,6 +63,7 @@
         "loadingImages": "Loading images… ({{ready}}/{{total}})",
         "startingIn": "Starting in {{seconds}} s…",
         "gameRunning": "This game has already started. You can still watch it.",
+        "ended": "This game is already over.",
         "reconnecting": "Reconnecting…",
         "enterName": "Enter your name first",
         "copyJoinLink": "Copy join link",

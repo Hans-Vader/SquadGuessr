@@ -13,7 +13,8 @@ const GUESSES = [
 function setup(settings = CLASSIC) {
     let t = 1000;
     const sent = [];
-    const s = new Session("ABCD", { send: (conn, msg) => sent.push({ conn, msg }), now: () => t });
+    let codes = 0;
+    const s = new Session("ABCD", { send: (conn, msg) => sent.push({ conn, msg }), now: () => t, newCode: () => `NEW${++codes}` });
     const all = (conn, type) => sent.filter(x => x.conn === conn && x.msg.type === type).map(x => x.msg);
     const last = (conn, type) => all(conn, type).at(-1);
     const host = { id: "host" };
@@ -45,6 +46,16 @@ function started(settings) {
     const ctx = withGuest(settings);
     ctx.begin();
     return ctx;
+}
+
+// plays the running game on to its last reveal, where it counts as over (players may look at their results)
+function toLastReveal(s, host) {
+    while (s.round + 1 < s.guesses.length) {
+        s.handle(host, { type: "endRound" });
+        readyAll(s, s.round + 1);
+        s.handle(host, { type: "next" });
+    }
+    s.handle(host, { type: "endRound" });
 }
 
 test("create makes the creator host and player", () => {
@@ -849,4 +860,105 @@ test("a guest whose connection dropped in the lobby keeps their place through a 
     const phone = {};
     assert.equal(s.join(phone, { token }), true);
     assert.equal(last(phone, "welcome").playerId, last(guest, "welcome").playerId);
+});
+
+// ===== PLAY AGAIN: the next game gets a new code, the old one shows the results =====
+
+test("play again gives the next game a new code: who is still there is welcomed with it and keeps their token", () => {
+    const { s, host, guest, last } = started();
+    const tv = {};
+    s.watch(tv);
+    const token = last(guest, "welcome").token;
+    toLastReveal(s, host);
+    s.handle(host, { type: "lobby" });
+    assert.equal(s.code, "NEW1");
+    assert.equal(last(guest, "welcome").code, "NEW1");
+    assert.equal(last(guest, "welcome").token, token);
+    assert.equal(last(host, "welcome").isHost, true);
+    assert.equal(last(guest, "state").code, "NEW1");
+    assert.equal(last(tv, "state").code, "NEW1");
+});
+
+test("a stranger with the old code gets the results of that game instead of a place in the next one", () => {
+    const { s, host, guest, last } = started();
+    s.handle(guest, { type: "answer", index: 0, lat: GUESSES[0].lat, lng: GUESSES[0].lng });
+    toLastReveal(s, host);
+    s.handle(host, { type: "next" });
+    s.handle(host, { type: "lobby" });
+    const eve = {};
+    assert.equal(s.join(eve, { name: "Eve" }, "ABCD"), false);
+    const ended = last(eve, "ended");
+    assert.deepEqual(ended.ranking.map(r => [r.name, r.score]), [["Max", 100], ["Hans", 0]]);
+    assert.deepEqual(ended.winners, [last(guest, "welcome").playerId]);
+    assert.equal(s.players.size, 2);
+});
+
+test("a player of the old game who was away during play again gets into the next lobby with the old code, not once it runs", () => {
+    const { s, host, guest, last, begin } = withGuest();
+    const ann = {};
+    s.join(ann, { name: "Ann" });
+    begin();
+    const maxToken = last(guest, "welcome").token;
+    const annToken = last(ann, "welcome").token;
+    toLastReveal(s, host);
+    s.disconnect(guest);
+    s.disconnect(ann);
+    s.handle(host, { type: "lobby" });
+    // their invite link asks with the token, and learns what joining brings
+    const look = {};
+    s.peek(look, "ABCD", maxToken);
+    assert.ok(last(look, "joinable"));
+    // back while the next game is still in its lobby: in, under the new code
+    const phone = {};
+    assert.equal(s.join(phone, { name: "Max", token: maxToken }, "ABCD"), true);
+    assert.equal(last(phone, "welcome").code, "NEW1");
+    // back once it runs: too late, the old game's results
+    begin();
+    const glance = {};
+    s.peek(glance, "ABCD", annToken);
+    assert.ok(last(glance, "ended"));
+    const tablet = {};
+    assert.equal(s.join(tablet, { name: "Ann", token: annToken }, "ABCD"), false);
+    assert.equal(last(tablet, "ended").ranking.length, 3);
+});
+
+test("joining a finished game shows newcomers its results, while its own players still get back in", () => {
+    const { s, host, guest, last } = started();
+    const token = last(guest, "welcome").token;
+    toLastReveal(s, host);
+    const eve = {};
+    assert.equal(s.join(eve, { name: "Eve" }), false);
+    assert.equal(last(eve, "ended").ranking.length, 2);
+    s.handle(host, { type: "next" });
+    const ann = {};
+    assert.equal(s.join(ann, { name: "Ann" }), false);
+    assert.equal(last(ann, "ended").ranking.length, 2);
+    const phone = {};
+    assert.equal(s.join(phone, { name: "Max", token }), true);
+    assert.ok(last(phone, "final"));
+});
+
+test("peek tells an invite link what is behind a code without taking a place: open lobby, running game or over", () => {
+    const { s, host, sent, advance } = withGuest();
+    const peek = (code) => {
+        const conn = {};
+        s.peek(conn, code);
+        const reply = sent.find(x => x.conn === conn).msg;
+        return reply.type === "error" ? reply.code : reply.type;
+    };
+    assert.equal(peek("ABCD"), "joinable");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    // the host can still call the start off: the form stays
+    assert.equal(peek("ABCD"), "joinable");
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(peek("ABCD"), "GAME_RUNNING");
+    toLastReveal(s, host);
+    assert.equal(peek("ABCD"), "ended");
+    s.handle(host, { type: "lobby" });
+    assert.equal(peek("ABCD"), "ended");
+    assert.equal(peek("NEW1"), "joinable");
+    assert.equal(s.players.size, 2);
+    assert.equal(s.watchers.size, 0);
 });

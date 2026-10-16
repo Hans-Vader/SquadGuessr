@@ -63,6 +63,7 @@
         "loadingImages": "图片加载中…（{{ready}}/{{total}}）",
         "startingIn": "{{seconds}} 秒后开始…",
         "gameRunning": "游戏已经开始，你仍可以观看。",
+        "ended": "这局游戏已经结束了。",
         "reconnecting": "正在重新连接...",
         "enterName": "请先输入你的名字",
         "copyJoinLink": "复制加入链接",
