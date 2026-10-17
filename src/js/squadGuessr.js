@@ -285,7 +285,7 @@ export default class SquadGuessr {
      * @throws {Error} Throws an error if the network request fails or the response is not OK.
      */
     async getGuess(number) {
-        const url = `/api/v2/get/squadGuess?nb=${number}`;
+        const url = `/api/get/squadGuess?nb=${number}`;
         try {
             const response = await fetch(url, {
                 headers: { "X-App-Version": this.version }
@@ -361,7 +361,7 @@ export default class SquadGuessr {
      * The hint image's URL; the multiplayer preloads exactly this one
      */
     hintUrl(url) {
-        return `/api/v2${url}`;
+        return `/api${url}`;
     }
 
     /**
@@ -500,7 +500,7 @@ export default class SquadGuessr {
         this.gameData.forEach(guess => {
             const $img = $(`
                 <div class="map-thumbnail">
-                    <img src="/api/v2${guess.url}" alt="Guess Image">
+                    <img src="/api${guess.url}" alt="Guess Image">
                     <span class="roundScore">+${guess.points}</span>
                 </div>
             `);

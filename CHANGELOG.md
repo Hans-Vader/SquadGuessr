@@ -1,3 +1,20 @@
+# <img src="https://img.shields.io/badge/-minor%20release-cd6f68?style=for-the-badge"> **2.1.0** *(2026-XX-XX)*
+
+</br><img src="https://img.shields.io/badge/-new%20features-green">
+- Added a mention on hint images crediting the submitter (Thanks Dan)
+- Added 23 new guess on Sanxian (Thanks Dan)
+- Added a close button on full screen hint visualisation
+
+</br><img src="https://img.shields.io/badge/-bug%20fix-firebrick">
+- Disabled Belaya and flooded Narva from maps list
+- Removed old /api/v2/ and API_KEY deprecated 
+
+
+
+</br></br><!-- CHANGELOG SPLIT MARKER -->
+
+
+
 # <img src="https://img.shields.io/badge/-major%20release-b22222?style=for-the-badge"> **2.0.0** *(2026-10-08)*
 
 </br><img src="https://img.shields.io/badge/-new%20features-green">
