@@ -42,6 +42,10 @@ export default class Multiplayer {
         this.statusTimer = null;
         // this player just handed the host role over: losing it is no news to them
         this.gaveHost = false;
+        // the socket of a REJOIN check that is still waiting for its answer, null otherwise
+        this.resumeCheck = null;
+        // the session the REJOIN hint on screen offers
+        this.resumeCode = null;
     }
 
     init() {
@@ -63,7 +67,7 @@ export default class Multiplayer {
         });
         $("#BUTTON_MP_CREATE").on("click", () => this.create());
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
-        $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
+        $("#BUTTON_MP_LEAVE").on("click", () => { if (this.confirmLeave()) this.leave(); });
         $("#BUTTON_MP_START").on("click", () => this.start());
         $("#BUTTON_MP_READY").on("click", () => {
             const me = this.state?.players.find(p => p.id === this.me);
@@ -87,7 +91,20 @@ export default class Multiplayer {
             if (action === "promote") this.gaveHost = true;
             this.send({ type: action, playerId: id });
         });
+        $(".mp-resume-join").on("click", () => {
+            // the token gets us back in: a name field emptied in the entry form must not block that
+            if (!$("#mpName").val().trim()) $("#mpName").val(localStorage.getItem("mp:name") ?? "");
+            this.join(this.resumeCode);
+        });
+        $(".mp-resume-dismiss").on("click", () => {
+            this.unpoint(this.resumeCode);
+            this.closeResume();
+        });
         document.addEventListener("visibilitychange", () => this.onVisible());
+        // a page left for another one can live on in the back/forward cache with its socket open (the browser even
+        // answers the server's pings), so the game would keep waiting for this player. Closed, it is a dropped
+        // connection with its reconnect window; coming back reconnects (onclose retry / onVisible)
+        window.addEventListener("pagehide", () => this.ws?.close());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
 
@@ -195,6 +212,8 @@ export default class Multiplayer {
         this.ws = null;
         previous?.close();
         this.hello = hello;
+        // on the way into a session: no hint, and a check still running must not bring it back
+        this.closeResume();
         // a JOIN clicked while a watch attempt still connects makes this a player again
         this.watching = hello.type === "watch";
         this.active = true;
@@ -204,8 +223,7 @@ export default class Multiplayer {
     }
 
     connect() {
-        const protocol = location.protocol === "https:" ? "wss" : "ws";
-        const ws = new WebSocket(`${protocol}://${location.host}/mp`);
+        const ws = new WebSocket(this.socketUrl());
         this.ws = ws;
         this.offset = null;
         ws.onopen = () => {
@@ -221,6 +239,49 @@ export default class Multiplayer {
             clearTimeout(this.retryTimer);
             this.retryTimer = setTimeout(() => this.connect(), RETRY_DELAYS[this.retry++] ?? 5000);
         };
+    }
+
+    socketUrl() {
+        const protocol = location.protocol === "https:" ? "wss" : "ws";
+        return `${protocol}://${location.host}/mp`;
+    }
+
+    /**
+     * Asks the server whether the last session we played in still knows our token, and offers the way back.
+     * On a socket of its own: a check is nobody in the session. No retry: without an answer there is no hint
+     */
+    checkResume() {
+        this.closeResume();
+        const code = localStorage.getItem("mp:last");
+        const token = code && localStorage.getItem(`mp:${code}`);
+        if (!token) return;
+        const ws = new WebSocket(this.socketUrl());
+        this.resumeCheck = ws;
+        ws.onopen = () => ws.send(JSON.stringify({ type: "check", code, token }));
+        ws.onmessage = (event) => {
+            ws.close();
+            // a newer check took over, or we are in a session again by now (e.g. the silent rejoin after a reload)
+            if (this.resumeCheck !== ws || this.active) return;
+            this.resumeCheck = null;
+            const msg = JSON.parse(event.data);
+            if (msg.type !== "resumable") return this.unpoint(code);
+            this.showResume(msg);
+        };
+    }
+
+    showResume({ code, phase, round, total }) {
+        this.resumeCode = code;
+        const text = phase === "lobby"
+            ? i18next.t("mp.resume.lobby", { ns: "common", code })
+            : i18next.t("mp.resume.game", { ns: "common", code, round: round + 1, total });
+        $(".mp-resume-text").text(text);
+        $(".mp-resume").prop("hidden", false);
+    }
+
+    closeResume() {
+        this.resumeCheck?.close();
+        this.resumeCheck = null;
+        $(".mp-resume").prop("hidden", true);
     }
 
     onVisible() {
@@ -269,10 +330,36 @@ export default class Multiplayer {
 
     leave() {
         this.send({ type: "leave" });
-        // a big-screen tab never held a player token: it must not drop the one the player tab next to it uses
-        if (this.code && !this.watching) localStorage.removeItem(`mp:${this.code}`);
+        // only the lobby drops the player for good; from the countdown on the token is the way back (REJOIN hint).
+        // A big-screen tab never held a player token: it must not drop the one the player tab next to it uses
+        if (this.state?.phase === "lobby" && !this.watching) this.forget(this.code);
         this.stop();
         this.app.toMenu();
+    }
+
+    /**
+     * Leaving the lobby is final (the server drops the player, the token dies): asked first. Anywhere else the REJOIN
+     * hint brings the player back, and a big screen never was one. Only for clicks: onError leaves without asking
+     */
+    confirmLeave() {
+        if (this.watching || this.state?.phase !== "lobby") return true;
+        return confirm(i18next.t("mp.confirmLeave", { ns: "common" }));
+    }
+
+    /**
+     * Drops a stored token that cannot get us back in any more, and the REJOIN pointer to it
+     */
+    forget(code) {
+        localStorage.removeItem(`mp:${code}`);
+        this.unpoint(code);
+    }
+
+    /**
+     * No REJOIN hint for this session any more. Its token stays: another tab of this browser may still play with it,
+     * and its reload needs it (a dead token does no harm)
+     */
+    unpoint(code) {
+        if (localStorage.getItem("mp:last") === code) localStorage.removeItem("mp:last");
     }
 
     // ===== MESSAGES =====
@@ -285,7 +372,9 @@ export default class Multiplayer {
             this.me = msg.playerId;
             this.code = msg.code;
             localStorage.setItem(`mp:${msg.code}`, msg.token);
-            this.hello = { type: "join", code: msg.code, name: this.hello.name, token: msg.token };
+            // the session the REJOIN hint asks about (see checkResume)
+            localStorage.setItem("mp:last", msg.code);
+            this.hello ={ type: "join", code: msg.code, name: this.hello.name, token: msg.token };
             history.replaceState({}, "", `/?join=${msg.code}`);
             // a new connection has nothing in flight: a CANCEL lost with the old one can be clicked again
             $("#BUTTON_MP_CANCEL").prop("disabled", false);
@@ -313,6 +402,9 @@ export default class Multiplayer {
         case "final":
             this.onFinal(msg);
             break;
+        case "left":
+            this.toast("info", "mp.left", { name: msg.name });
+            break;
         case "error":
             this.onError(msg.code);
             break;
@@ -337,7 +429,7 @@ export default class Multiplayer {
         }
         this.toast("error", `mp.errors.${code}`);
         // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
-        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
+        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") this.forget(this.hello?.code);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "SESSION_FULL", "SERVER_BUSY", "KICKED"].includes(code);
         if (!rejected) return;
         // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen link, or an invite
@@ -488,7 +580,7 @@ export default class Multiplayer {
     }
 
     /**
-     * Status line while a round waits: before round 1 the countdown, then how many have their images (startTimer ticks it)
+     * Status line while a round waits: before round 1 the countdown, then how many have their images (statusTimer ticks it)
      */
     renderLoadingStatus() {
         const s = this.state;
@@ -858,7 +950,8 @@ export default class Multiplayer {
             .catch(err => console.error("Copy failed", err));
     }
 
-    toast(type, key) {
-        this.app.openToast(type, i18next.t(key, { ns: "common" }), "");
+    toast(type, key, options = {}) {
+        // openToast sets innerHTML: values (a player name is user input) go through i18next, which escapes them
+        this.app.openToast(type, i18next.t(key, { ns: "common", ...options }), "");
     }
 }

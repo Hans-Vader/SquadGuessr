@@ -91,6 +91,13 @@
             "kick": "Remove {{name}} from the session?",
             "promote": "Make {{name}} the host? You will be a regular player then."
         },
+        "confirmLeave": "Leave the lobby? You will need the code to come back.",
+        "left": "{{name}} left the lobby",
+        "resume": {
+            "lobby": "You are still in lobby {{code}}",
+            "game": "Game {{code}} is still running · round {{round}}/{{total}}"
+        },
+        "dismissResume": "Dismiss",
         "buttons": {
             "create": "CREATE SESSION",
             "join": "JOIN",
@@ -99,7 +106,8 @@
             "cancel": "CANCEL",
             "leave": "LEAVE",
             "endRound": "END ROUND",
-            "watch": "WATCH"
+            "watch": "WATCH",
+            "rejoin": "REJOIN"
         },
         "errors": {
             "SESSION_NOT_FOUND": "Session not found",

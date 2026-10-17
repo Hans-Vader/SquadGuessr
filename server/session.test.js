@@ -102,6 +102,26 @@ test("new players cannot join a running game", () => {
     assert.equal(last(late, "error").code, "GAME_RUNNING");
 });
 
+test("until round 1 runs, players can join like in the lobby; who left during the countdown keeps their place, offline", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(guest, { type: "leave" });
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected]), [["Hans", true], ["Max", false]]);
+    // back under the same name without the token (another device) takes the place over, and someone new joins:
+    // both get round 1's images to load
+    const again = {};
+    const late = {};
+    assert.equal(s.join(again, { name: "Max" }), true);
+    assert.equal(s.join(late, { name: "Late" }), true);
+    assert.deepEqual([last(again, "prepare").index, last(late, "prepare").index], [0, 0]);
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(s.phase, "round");
+    assert.equal(last(again, "round").index, 0);
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.connected]), [["Hans", true], ["Max", true], ["Late", true]]);
+});
+
 test("only the host may control the game", () => {
     const { s, guest, last } = withGuest();
     s.handle(guest, { type: "start", guesses: GUESSES });
@@ -955,7 +975,7 @@ test("after a game nobody is ready any more, and the next game starts from the l
     assert.equal(last(guest, "state").players.find(p => p.name === "Max").lobbyReady, false);
 });
 
-test("the host can call the start off until round 1 runs: back to the lobby, ready marks stay, who left is gone", () => {
+test("the host can call the start off until round 1 runs: back to the lobby, ready marks stay, who left stays offline", () => {
     const { s, host, guest, last, advance } = withGuest();
     const ida = {};
     s.join(ida, { name: "Ida" });
@@ -973,8 +993,9 @@ test("the host can call the start off until round 1 runs: back to the lobby, rea
     s.handle(host, { type: "cancelStart" });
     const state = last(guest, "state");
     assert.deepEqual([state.phase, state.startsAt], ["lobby", null]);
-    assert.deepEqual(state.players.map(p => [p.name, p.lobbyReady]), [["Hans", false], ["Max", true]]);
-    assert.deepEqual([...s.players.values()].map(p => [p.ready, p.stalled]), [[-1, false], [-1, false]]);
+    // Ida left during the countdown: offline like a dropped connection, she can come back with her token
+    assert.deepEqual(state.players.map(p => [p.name, p.connected, p.lobbyReady]), [["Hans", true, false], ["Max", true, true], ["Ida", false, true]]);
+    assert.deepEqual([...s.players.values()].map(p => [p.ready, p.stalled]), [[-1, false], [-1, false], [-1, false]]);
     // nothing keeps running in the lobby
     advance(LOAD_FIRST_MS);
     s.tick();
@@ -1010,4 +1031,134 @@ test("a guest whose connection dropped in the lobby keeps their place through a 
     const phone = {};
     assert.equal(s.join(phone, { token }), true);
     assert.equal(last(phone, "welcome").playerId, last(guest, "welcome").playerId);
+});
+
+test("check tells a token that can come back where the game is, and changes nothing", () => {
+    const { s, sent, host, guest, last, advance } = withGuest();
+    s.join({}, { name: "Ida" });
+    const { playerId, token } = last(guest, "welcome");
+    s.disconnect(guest);
+    // only the probe hears back: no broadcast, and the player stays offline
+    const check = () => {
+        const conn = {};
+        const before = sent.length;
+        s.check(conn, token);
+        assert.equal(sent.length, before + 1);
+        assert.equal(s.players.get(playerId).connected, false);
+        return sent.at(-1).msg;
+    };
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "lobby", round: 0, total: 3 });
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "loading", round: 0, total: 3 });
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "round", round: 0, total: 3 });
+    s.handle(host, { type: "endRound" });
+    assert.deepEqual(check(), { type: "resumable", code: "ABCD", phase: "reveal", round: 0, total: 3 });
+});
+
+test("check turns away an unknown or odd token, a kicked player, who left the lobby, and a game that is over", () => {
+    const { s, host, guest, last, begin } = withGuest();
+    const answer = (token) => {
+        const conn = {};
+        s.check(conn, token);
+        return last(conn, "resumable") ? "resumable" : last(conn, "error").code;
+    };
+    assert.equal(answer("nope"), "SESSION_NOT_FOUND");
+    assert.equal(answer(undefined), "SESSION_NOT_FOUND");
+    assert.equal(answer({ toString: 1 }), "SESSION_NOT_FOUND");
+    const ida = {};
+    s.join(ida, { name: "Ida" });
+    s.handle(host, { type: "kick", playerId: last(ida, "welcome").playerId });
+    assert.equal(answer(last(ida, "welcome").token), "SESSION_NOT_FOUND");
+    const ana = {};
+    s.join(ana, { name: "Ana" });
+    s.handle(ana, { type: "leave" });
+    assert.equal(answer(last(ana, "welcome").token), "SESSION_NOT_FOUND");
+    // the last round is still worth coming back for, its reveal and the final are not
+    const token = last(guest, "welcome").token;
+    begin();
+    for (let i = 0; i < 2; i++) {
+        s.handle(host, { type: "endRound" });
+        readyAll(s, s.round + 1);
+        s.handle(host, { type: "next" });
+    }
+    assert.equal(answer(token), "resumable");
+    s.handle(host, { type: "endRound" });
+    assert.equal(s.phase, "reveal");
+    assert.equal(answer(token), "SESSION_NOT_FOUND");
+    s.handle(host, { type: "next" });
+    assert.equal(s.phase, "final");
+    assert.equal(answer(token), "SESSION_NOT_FOUND");
+});
+
+test("who left during the countdown comes back with their token, even once round 1 runs", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    const { playerId, token } = last(guest, "welcome");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(guest, { type: "leave" });
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(s.phase, "round");
+    const phone = {};
+    assert.equal(s.join(phone, { token }), true);
+    assert.equal(last(phone, "welcome").playerId, playerId);
+    assert.equal(last(phone, "round").index, 0);
+});
+
+test("leaving the lobby tells everyone else who left; a kick, a dropped connection and leaving later do not", () => {
+    const { s, host, guest, all, last, advance } = withGuest();
+    const tv = {};
+    s.watch(tv);
+    const join = (name) => {
+        const conn = {};
+        s.join(conn, { name });
+        return conn;
+    };
+    const ida = join("Ida");
+    s.handle(ida, { type: "leave" });
+    const left = [{ type: "left", name: "Ida" }];
+    assert.deepEqual([all(host, "left"), all(guest, "left"), all(tv, "left"), all(ida, "left")], [left, left, left, []]);
+    const eve = join("Eve");
+    s.handle(host, { type: "kick", playerId: last(eve, "welcome").playerId });
+    s.disconnect(join("Ana"));
+    const bob = join("Bob");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.handle(guest, { type: "leave" });
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(s.phase, "round");
+    s.handle(bob, { type: "leave" });
+    assert.deepEqual(all(host, "left"), left);
+});
+
+test("the reconnect window is 30 s: long enough for a quick app switch or a trip to another page and back", () => {
+    const { s, host, guest, advance } = started();
+    s.disconnect(guest);
+    s.handle(host, { type: "answer", index: s.round, lat: -100, lng: 200 });
+    advance(29 * 1000);
+    s.tick();
+    assert.equal(s.phase, "round");
+    advance(1000);
+    s.tick();
+    assert.equal(s.phase, "reveal");
+});
+
+test("someone new who joins the countdown after everyone left still gets the time to load round 1", () => {
+    const { s, host, guest, advance } = withGuest();
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.disconnect(host);
+    s.disconnect(guest);
+    advance(COUNTDOWN_FORCED_MS + LOAD_FIRST_MS);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    const late = {};
+    assert.equal(s.join(late, { name: "Late" }), true);
+    s.tick();
+    assert.equal(s.phase, "loading");
+    s.handle(late, { type: "ready", index: 0 });
+    assert.equal(s.phase, "round");
 });
