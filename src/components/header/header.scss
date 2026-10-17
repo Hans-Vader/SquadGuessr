@@ -17,6 +17,8 @@ header {
             padding: 0 5px;
             margin-left: 5px;
             display: inline-block;
+            // half the loader's 8px: the header logo is half its size (3em vs 6em)
+            border-radius: 4px;
         }
         #beta {
             background-color: firebrick;
