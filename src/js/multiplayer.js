@@ -37,8 +37,10 @@ export default class Multiplayer {
         this.nextTimer = null;
         // the guess request of a START click that is still running, null otherwise
         this.guessFetch = null;
-        // ticks the start countdown on between two states, null when none runs
-        this.startTimer = null;
+        // ticks the start / next round countdown on between two states, null when none runs
+        this.statusTimer = null;
+        // this player just handed the host role over: losing it is no news to them
+        this.gaveHost = false;
     }
 
     init() {
@@ -76,7 +78,14 @@ export default class Multiplayer {
         $("#BUTTON_MP_COPY_JOIN").on("click", () => this.copyLink("#mpJoinUrl", "mp.joinLinkCopied"));
         $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
-        $("#mpPlayers").on("click", ".mp-kick", (e) => this.send({ type: "kick", playerId: e.currentTarget.dataset.id }));
+        $("#mpPlayers").on("click", ".mp-promote, .mp-kick", (e) => {
+            const { id, action } = e.currentTarget.dataset;
+            const name = this.state?.players.find(p => p.id === id)?.name;
+            // a plain-text dialog: the name must not come out escaped
+            if (!confirm(i18next.t(`mp.confirm.${action}`, { ns: "common", name, interpolation: { escapeValue: false } }))) return;
+            if (action === "promote") this.gaveHost = true;
+            this.send({ type: action, playerId: id });
+        });
         document.addEventListener("visibilitychange", () => this.onVisible());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
@@ -107,10 +116,13 @@ export default class Multiplayer {
     }
 
     readSettings() {
+        const rush = $("#mpTimer").val() === "rush";
         return {
             mode: $("#mpMode").val(),
-            timer: Number($("#mpTimer").val()),
+            timer: Number(rush ? $("#mpRush").val() : $("#mpTimer").val()),
             rounds: Number($("#mpRounds").val()),
+            // 0: the host moves on with NEXT
+            next: $("#mpNext").val() === "auto" ? Number($("#mpNextDelay").val()) : 0,
         };
     }
 
@@ -226,7 +238,7 @@ export default class Multiplayer {
         this.watching = false;
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
-        clearInterval(this.startTimer);
+        clearInterval(this.statusTimer);
         clearTimeout(this.nextTimer);
         this.guessFetch = null;
         // the lock ends with the game: singleplayer never unlocks RESULTS itself
@@ -239,6 +251,7 @@ export default class Multiplayer {
         this.answered = false;
         this.roundIndex = null;
         this.revealIndex = null;
+        this.gaveHost = false;
         // the game screen is gone: a round seen again later (watching this session after leaving it) must count as fresh
         this.app.currentGuess = null;
         this.app.selectMode($(".mode-card.selected").data("mode") || "classic");
@@ -283,6 +296,7 @@ export default class Multiplayer {
                 $("body").addClass("watch-mode");
                 history.replaceState({}, "", `/?watch=${msg.code}`);
             }
+            this.onHostChange(this.state?.hostId, msg.hostId);
             this.state = msg;
             this.renderState();
             break;
@@ -336,6 +350,18 @@ export default class Multiplayer {
         this.showEntry();
     }
 
+    /**
+     * Tells this player when the host role came to them, or went away without their doing (the time after a game ran
+     * out, or they were gone for longer than a reload takes); never on the first state, never on the big screen
+     */
+    onHostChange(before, now) {
+        if (!before || before === now || this.watching) return;
+        if (now === this.me) this.toast("success", "mp.nowHost");
+        if (before !== this.me) return;
+        if (!this.gaveHost) this.toast("warning", "mp.noLongerHost");
+        this.gaveHost = false;
+    }
+
     // ===== RENDERING =====
 
     isHost() {
@@ -348,8 +374,16 @@ export default class Multiplayer {
         $("body").toggleClass("mp-host", this.isHost());
         $("#mpRoomCode").text(s.code);
         $("#mpMode").val(s.settings.mode);
-        $("#mpTimer").val(String(s.settings.timer));
+        const { timer, next } = s.settings;
+        // the seconds selects keep their last choice while hidden, so switching back brings it again
+        const rush = timer > 0 && timer < 60;
+        $("#mpTimer").val(rush ? "rush" : String(timer));
+        $("#mpRush").prop("hidden", !rush);
+        if (rush) $("#mpRush").val(String(timer));
         $("#mpRounds").val(String(s.settings.rounds));
+        $("#mpNext").val(next ? "auto" : "0");
+        $("#mpNextDelay").prop("hidden", !next);
+        if (next) $("#mpNextDelay").val(String(next));
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
@@ -360,10 +394,28 @@ export default class Multiplayer {
         if (s.phase === "lobby") {
             // a start that was called off leaves nothing loading or retrying behind
             this.preloader.keep([]);
-            this.showRoom();
+            if (this.backInLobby(s)) this.showRoom();
         }
         // a page that (re)opened while everyone waits for the images: the room shows who is loading, not the menu
         if (s.phase === "loading" && !$("#map_ui").is(":visible")) this.showRoom();
+    }
+
+    /**
+     * After a game each player stays on the final ranking until their own PLAY AGAIN, the big screen until the host's;
+     * whoever is still on the last reveal (the lobby came before the final) gets the ranking from it
+     */
+    backInLobby(s) {
+        const back = s.players.find(p => p.id === (this.watching ? s.hostId : this.me))?.back;
+        // undefined: a server from before PLAY AGAIN for everyone
+        if (back !== false) return true;
+        if ($("#results").is(":visible")) return false;
+        if ($("#map_ui").is(":visible") && this.lastReveal) {
+            this.finalFromReveal();
+            return false;
+        }
+        // a reload lost the results: nothing to stay for
+        if (!this.watching) this.send({ type: "lobby" });
+        return true;
     }
 
     /**
@@ -380,7 +432,8 @@ export default class Multiplayer {
         $("#BUTTON_MP_ENDROUND").prop("hidden", s.phase !== "round" || !host || s.settings.timer > 0);
         // any answer from the server unlocks NEXT / RESULTS (see next())
         clearTimeout(this.nextTimer);
-        this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
+        // with settings.next the countdown alone moves on
+        this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last || Boolean(s.settings.next), disabled: false });
         // after the last round every player may look at the results; the big screen follows the host
         this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !last || this.watching, disabled: false });
         this.renderLobbyButtons(s, starting);
@@ -388,14 +441,18 @@ export default class Multiplayer {
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
-        clearInterval(this.startTimer);
+        clearInterval(this.statusTimer);
         if (loading) {
             this.renderLoadingStatus();
-            if (s.startsAt !== null) this.startTimer = setInterval(() => this.renderLoadingStatus(), 250);
+            if (s.startsAt !== null) this.statusTimer = setInterval(() => this.renderLoadingStatus(), 250);
             $("#mpStatus").prop("hidden", false);
             return;
         }
-        if (s.phase === "reveal") {
+        if (s.phase === "reveal" && s.nextAt !== null) {
+            this.renderNextStatus();
+            this.statusTimer = setInterval(() => this.renderNextStatus(), 250);
+            $("#mpStatus").prop("hidden", false);
+        } else if (s.phase === "reveal") {
             $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", host || (last && !this.watching));
         }
         if (s.phase !== "round") return;
@@ -435,12 +492,23 @@ export default class Multiplayer {
     renderLoadingStatus() {
         const s = this.state;
         const left = s.startsAt === null ? 0 : secondsUntil(s.startsAt, this.offset, Date.now());
-        if (left === 0) clearInterval(this.startTimer);
+        if (left === 0) clearInterval(this.statusTimer);
         const waited = s.players.filter(p => p.connected && !p.stalled);
         const text = left > 0
             ? i18next.t("mp.startingIn", { ns: "common", seconds: left })
             : i18next.t("mp.loadingImages", { ns: "common", ready: waited.filter(p => p.ready).length, total: waited.length });
         $("#mpStatus, #mpLobbyStatus").text(text);
+    }
+
+    /**
+     * Status line while the reveal counts down to the next round (or the results), for everyone
+     */
+    renderNextStatus() {
+        const s = this.state;
+        const left = secondsUntil(s.nextAt, this.offset, Date.now());
+        if (left === 0) clearInterval(this.statusTimer);
+        const key = s.round + 1 === s.total ? "mp.resultsIn" : "mp.nextIn";
+        $("#mpStatus").text(i18next.t(key, { ns: "common", seconds: left }));
     }
 
     // ===== GAME =====
@@ -657,11 +725,15 @@ export default class Multiplayer {
     }
 
     /**
-     * The host moves everyone on to the final screen; anyone else just goes there on their own:
-     * the last reveal already holds the final scores, sorted
+     * The host moves everyone on to the final screen (with settings.next the countdown does); anyone else just goes
+     * there on their own: the last reveal already holds the final scores, sorted
      */
     showResults() {
-        if (this.isHost()) return this.next();
+        if (this.isHost() && !this.state.settings.next) return this.next();
+        this.finalFromReveal();
+    }
+
+    finalFromReveal() {
         const ranking = this.lastReveal.results.map(r => ({ id: r.id, name: r.name, score: r.score }));
         const top = ranking[0]?.score;
         this.onFinal({ ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) });
@@ -680,8 +752,9 @@ export default class Multiplayer {
     renderPlayers(s) {
 
         const chip = p => $("<li>")
-            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
+            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
+            .attr("title", s.phase === "lobby" && p.back === false ? i18next.t("mp.onResults", { ns: "common" }) : null)
             .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
             .toggleClass("me", p.id === this.me);
         $("#mpChips").empty().append(s.players.map(chip));
@@ -690,9 +763,14 @@ export default class Multiplayer {
         $("#mpPlayers").empty().append(s.players.map(p => {
             const $li = chip(p);
             if (!kickable || p.id === this.me) return $li;
-            // set as an attribute, not HTML: the name must not come out escaped
-            const label = i18next.t("mp.kick", { ns: "common", name: p.name, interpolation: { escapeValue: false } });
-            return $li.append($("<button class=\"mp-kick\">✕</button>").attr({ "data-id": p.id, "aria-label": label, title: label }));
+            const button = (action, icon, key) => {
+                // set as an attribute, not HTML: the name must not come out escaped
+                const label = i18next.t(key, { ns: "common", name: p.name, interpolation: { escapeValue: false } });
+                return $(`<button class="mp-${action}">`).text(icon).attr({ "data-id": p.id, "data-action": action, "aria-label": label, title: label });
+            };
+            // only to someone who is there: the role would move on again at once (see fixHost on the server)
+            if (p.connected && p.back !== false) $li.append(button("promote", "🔑", "mp.makeHost"));
+            return $li.append(button("kick", "✕", "mp.kick"));
         }));
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
         $("#mpRanking li").each((_, li) => {
@@ -735,11 +813,13 @@ export default class Multiplayer {
         });
     }
 
-    describeSettings({ mode, timer, rounds }) {
+    describeSettings({ mode, timer, rounds, next }) {
         const t = (key) => i18next.t(key, { ns: "common" });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
-        const timerLabel = { 0: t("timer.chill"), 60: t("timer.timed"), 15: t("timer.rush") }[timer];
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}`;
+        const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
+        // a no-break space keeps "10 s" together when the summary wraps
+        const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
+        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}`;
     }
 
     showEntry() {
