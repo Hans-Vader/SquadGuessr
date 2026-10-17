@@ -45,6 +45,14 @@
     display: none;
 }
 
+.leaflet-control-zoom-reset {
+    // ⌂ in the zoom bar of every squadMinimap: leaflet.css only sizes its + and − neighbours
+    font-size: 18px;
+    .leaflet-touch & {
+        font-size: 22px;
+    }
+}
+
 #gameWrapper {
     display: flex;
     gap: 3em;
@@ -52,7 +60,8 @@
     padding: 4em;
 
     .leaflet-control-zoom-in,
-    .leaflet-control-zoom-out {
+    .leaflet-control-zoom-out,
+    .leaflet-control-zoom-reset {
         background-color: variables.$mainColor;
         border-color: rgba(143, 143, 143, 0.555);
         color: white;

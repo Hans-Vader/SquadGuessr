@@ -92,6 +92,11 @@ export const squadMinimap = Map.extend({
 
         this.on("contextmenu", this._handleContextMenu, this);
 
+        // third button in the zoom bar: back to the start view after zooming into some corner by accident
+        // (Leaflet's own button builder, so a click neither places a marker nor jumps the page)
+        this.zoomControl._createButton("<span aria-hidden=\"true\">⌂</span>", "Reset view",
+            "leaflet-control-zoom-reset", this.zoomControl.getContainer(), () => this.resetView());
+
     },
 
 
@@ -171,7 +176,14 @@ export const squadMinimap = Map.extend({
         this.markersGroup.clearLayers();
         this.guessMarker = null;
 
-        // Reset map view
+        this.resetView();
+    },
+
+
+    /**
+     * Back to the start view: map centered at the default zoom
+     */
+    resetView: function(){
         this.setView([-this.pixelSize/2, this.pixelSize/2], 2);
     },
 

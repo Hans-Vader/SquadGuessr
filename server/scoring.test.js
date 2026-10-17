@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pointsForDistance, levenshtein, mapNameMatches, distance, mapSize, scoreAnswer } from "../src/js/scoring.js";
+import { pointsForDistance, levenshtein, mapNameMatches, distance, mapSize, scoreAnswer, rankMoves } from "../src/js/scoring.js";
 import { MAPS, initMapsProperties } from "../src/js/data/maps.js";
 
 test("pointsForDistance on a 3000m map", () => {
@@ -68,4 +68,28 @@ test("scoreAnswer classic and mapFinder", () => {
     assert.deepEqual(scoreAnswer("mapFinder", guess, { mapName: "narv" }), { distance: null, points: 100 });
     assert.equal(scoreAnswer("mapFinder", guess, { mapName: "gorodok" }).points, 0);
     assert.equal(scoreAnswer("mapFinder", guess, { mapName: "kohat gorodok anvil belaya chora narva" }).points, 0);
+});
+
+test("rankMoves compares the places before and after a round", () => {
+    // before: B 150, A 100, C 90
+    const results = [
+        { id: "A", score: 180, points: 80 },
+        { id: "B", score: 160, points: 10 },
+        { id: "C", score: 90, points: 0 },
+    ];
+    assert.deepEqual(rankMoves(results), { A: "up", B: "down" });
+});
+
+test("rankMoves gives equal scores the same place", () => {
+    // A and B shared the lead and still do: nobody moved, whatever order the sort left them in
+    assert.deepEqual(rankMoves([
+        { id: "B", score: 150, points: 50 },
+        { id: "A", score: 150, points: 50 },
+        { id: "C", score: 90, points: 0 },
+    ]), {});
+    // A pulls ahead: A was first already, only B drops
+    assert.deepEqual(rankMoves([
+        { id: "A", score: 180, points: 80 },
+        { id: "B", score: 150, points: 50 },
+    ]), { B: "down" });
 });
