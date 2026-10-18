@@ -53,6 +53,15 @@
     }
 }
 
+/* Firefox decodes the 4096² basemap again for every smaller size it is shown at (downscale-during-decode), so
+   zooming on a phone decodes it over and over; smooth scales the one full decode instead (Chrome ignores it).
+   Not on 1x screens: zoomed out that far, the map looks visibly rougher there */
+@media (resolution >= 2dppx) {
+    .leaflet-image-layer {
+        image-rendering: smooth;
+    }
+}
+
 #gameWrapper {
     display: flex;
     gap: 3em;
