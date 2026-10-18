@@ -14,6 +14,8 @@ export const COUNTDOWN_READY_MS = 5 * 1000;
 export const COUNTDOWN_FORCED_MS = 15 * 1000;
 // how long players back in the lobby wait for a host still on the results before one of them takes over
 export const HANDOVER_MS = 30 * 1000;
+// finished games whose code still shows their results; with MAX_SESSIONS it keeps the codes in use far below 32^4
+export const MAX_PAST = 10;
 
 const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "kick", "promote"];
 
@@ -386,8 +388,10 @@ export class Session {
         }
         // also from the last reveal: players see their results there without waiting for the host's "next"
         if (!this.over()) return this.error(player.conn, "INVALID");
-        // the finished game keeps its code (index.js maps it here and caps how many there are): its link shows the results
+        // the finished game keeps its code (index.js finds the session by it): its link shows the results
         this.past.set(this.code, { final: this.finalMsg(), tokens: new Set([...this.players.values()].map(p => p.token)) });
+        // the oldest finished game's link stops working first
+        if (this.past.size > MAX_PAST) this.past.delete(this.past.keys().next().value);
         this.code = this.newCode();
         this.phase = "lobby";
         this.guesses = [];

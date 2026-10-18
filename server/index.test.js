@@ -171,7 +171,7 @@ async function playAgain(host, guest) {
 }
 
 test("after play again the old code shows its results, the new one leads into the lobby, watching follows the session", { timeout: 30000 }, async (t) => {
-    const client = await serve(t, { idleMs: 100, maxSessions: 1 });
+    const client = await serve(t, { idleMs: 100 });
     // what a fresh socket hears first about a code: its results or an error
     const ask = async (msg) => {
         const ws = await client();
@@ -216,15 +216,9 @@ test("after play again the old code shows its results, the new one leads into th
     reloadedTv.sendJson({ type: "watch", code });
     assert.equal((await reloadedTv.next("state")).code, next);
 
-    // old codes are capped like the sessions: the oldest finished game's link stops working first
-    const third = await playAgain(host, guest);
-    assert.equal((await ask({ type: "peek", code })).code, "SESSION_NOT_FOUND");
-    assert.equal((await ask({ type: "peek", code: next })).type, "ended");
-    assert.notEqual(third, code);
-
     // once the session is dropped for idling, its old codes go with it
     [host, guest, tv, reloadedTv].forEach(ws => ws.close());
-    while ((await ask({ type: "peek", code: next })).type !== "error") await tick(100);
+    while ((await ask({ type: "peek", code })).type !== "error") await tick(100);
 });
 
 test("check answers on its own socket, counts as its one greeting and makes it nobody in the session", { timeout: 5000 }, async (t) => {

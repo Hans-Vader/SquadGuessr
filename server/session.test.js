@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS, HANDOVER_MS } from "./session.js";
+import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS, HANDOVER_MS, MAX_PAST } from "./session.js";
 import { mapSize } from "../src/js/scoring.js";
 
 const CLASSIC = { mode: "classic", timer: 0, rounds: 3, next: 0 };
@@ -1102,6 +1102,16 @@ test("a player of the old game who was away during play again gets into the next
     const tablet = {};
     assert.equal(s.join(tablet, { name: "Ann", token: annToken }, "ABCD"), false);
     assert.equal(last(tablet, "ended").ranking.length, 3);
+});
+
+test("a session keeps the results of its last MAX_PAST games: the oldest finished game's link stops working first", () => {
+    const { s, host, begin } = withGuest();
+    for (let i = 0; i <= MAX_PAST; i++) {
+        begin();
+        toLastReveal(s, host);
+        s.handle(host, { type: "lobby" });
+    }
+    assert.deepEqual([...s.past.keys()], Array.from({ length: MAX_PAST }, (_, i) => `NEW${i + 1}`));
 });
 
 test("joining a finished game shows newcomers its results, while its own players still get back in", () => {
