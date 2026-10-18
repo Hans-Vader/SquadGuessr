@@ -73,6 +73,7 @@
             "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up."
         },
         "gameRunning": "This game has already started. You can still watch it.",
+        "ended": "This game is already over.",
         "reconnecting": "Reconnecting…",
         "enterName": "Enter your name first",
         "copyJoinLink": "Copy join link",
