@@ -122,8 +122,9 @@ export const squadMinimap = Map.extend({
     changeLayer: function(failures = 0) {
         const OLDLAYER = this.activeLayer;
 
-        // Show spinner
-        this.spin(true, this.spinOptions);
+        // one spinner for the layer on screen: a replaced layer still downloading (next round before its map
+        // arrived) must not keep it spinning over the map that is already there
+        if (!this._spinner) this.spin(true, this.spinOptions);
 
         const layer = new ImageOverlay(basemapUrl(this.activeMap), this.imageBounds);
         this.activeLayer = layer;
@@ -136,14 +137,14 @@ export const squadMinimap = Map.extend({
                 // Animate the opacity of the new layer
                 $(layer.getElement()).fadeTo(700, 1, () => {
                     if (OLDLAYER) OLDLAYER.remove();
-                    this.spin(false);
+                    if (this.activeLayer === layer) this.spin(false);
                 });
             });
 
             layer.once("error", (e) => {
                 console.error("Error loading", e.sourceTarget._url);
                 if (OLDLAYER) OLDLAYER.remove();
-                this.spin(false);
+                if (this.activeLayer === layer) this.spin(false);
                 resolve();
                 // a newer changeLayer (next round, another map) replaces this layer and so ends the retries; a
                 // multiplayer Find the Map round hides the map and its reveal loads the map again anyway
