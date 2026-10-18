@@ -652,6 +652,8 @@ body.mp-chat #mpChat {
         }
     }
     form {
+        // at the bottom even while the log is empty (and hidden) in the full-height desktop panel
+        margin-top: auto;
         padding: 0.5rem;
     }
     #mpChatInput {
