@@ -12,6 +12,7 @@
         "timer": "计时器",
         "chill": "休闲",
         "timed": "限时",
+        "timedOption": "限时（60 秒）",
         "rush": "冲刺",
         "takeYourTime": "慢慢来",
         "oneMinutePerGuess": "每次猜测1分钟",
@@ -62,6 +63,15 @@
         "waitingForPlayers": "等待其他玩家中 ({{answered}}/{{total}})",
         "loadingImages": "图片加载中…（{{ready}}/{{total}}）",
         "startingIn": "{{seconds}} 秒后开始…",
+        "nextIn": "{{seconds}} 秒后进入下一轮…",
+        "resultsIn": "{{seconds}} 秒后显示结果…",
+        "nextHost": "房主",
+        "nextAuto": "自动",
+        "settings": {
+            "rounds": "轮数",
+            "next": "下一轮",
+            "nextHint": "揭晓答案后下一轮何时开始。房主：由你点击“下一个”开始。自动：所选时间结束后为所有人自动开始。"
+        },
         "gameRunning": "游戏已经开始，你仍可以观看。",
         "reconnecting": "正在重新连接...",
         "enterName": "请先输入你的名字",
@@ -78,6 +88,21 @@
             "close": "关闭聊天",
             "placeholder": "输入消息…"
         },
+        "onResults": "仍在查看结果",
+        "makeHost": "将 {{name}} 设为房主",
+        "nowHost": "你现在是房主",
+        "noLongerHost": "你不再是房主",
+        "confirm": {
+            "kick": "将 {{name}} 移出房间？",
+            "promote": "将 {{name}} 设为房主？之后你将成为普通玩家。"
+        },
+        "confirmLeave": "确定离开房间吗？之后需要房间码才能重新加入。",
+        "left": "{{name}} 离开了房间",
+        "resume": {
+            "lobby": "你仍在房间 {{code}} 中",
+            "game": "游戏 {{code}} 仍在进行 · 第 {{round}}/{{total}} 轮"
+        },
+        "dismissResume": "忽略",
         "buttons": {
             "create": "创建房间",
             "join": "加入",
@@ -86,7 +111,8 @@
             "cancel": "取消",
             "leave": "离开",
             "endRound": "结束回合",
-            "watch": "观看"
+            "watch": "观看",
+            "rejoin": "重新加入"
         },
         "errors": {
             "SESSION_NOT_FOUND": "未找到该房间",

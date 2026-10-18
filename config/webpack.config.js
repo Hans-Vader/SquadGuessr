@@ -79,13 +79,6 @@ export default async (env) => {
                     target: process.env.DEV_API_URL || "https://squadguessr.app",
                     changeOrigin: true,
                     ws: true,
-                    onProxyReq: (proxyReq) => {
-                        if (process.env.API_KEY)
-                            proxyReq.setHeader(
-                                "X-API-Key",
-                                process.env.API_KEY,
-                            );
-                    },
                 },
                 {
                     context: ["/mp"],

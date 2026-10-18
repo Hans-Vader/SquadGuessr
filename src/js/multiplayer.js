@@ -44,8 +44,14 @@ export default class Multiplayer {
         this.nextTimer = null;
         // the guess request of a START click that is still running, null otherwise
         this.guessFetch = null;
-        // ticks the start countdown on between two states, null when none runs
-        this.startTimer = null;
+        // ticks the start / next round countdown on between two states, null when none runs
+        this.statusTimer = null;
+        // this player just handed the host role over: losing it is no news to them
+        this.gaveHost = false;
+        // the socket of a REJOIN check that is still waiting for its answer, null otherwise
+        this.resumeCheck = null;
+        // the session the REJOIN hint on screen offers
+        this.resumeCode = null;
         // chat: panel open (remembered per device), lines from others that came in while it was closed, when the
         // own last line went out (performance.now)
         this.chatOpen = localStorage.getItem("mp:chatOpen") === "1";
@@ -76,7 +82,7 @@ export default class Multiplayer {
         });
         $("#BUTTON_MP_CREATE").on("click", () => this.create());
         $("#BUTTON_MP_JOIN").on("click", () => this.join($("#mpCode").val()));
-        $("#BUTTON_MP_LEAVE").on("click", () => this.leave());
+        $("#BUTTON_MP_LEAVE").on("click", () => { if (this.confirmLeave()) this.leave(); });
         $("#BUTTON_MP_START").on("click", () => this.start());
         $("#BUTTON_MP_READY").on("click", () => {
             const me = this.state?.players.find(p => p.id === this.me);
@@ -94,7 +100,14 @@ export default class Multiplayer {
         $("#BUTTON_MP_COPY_JOIN").on("click", () => this.copyLink("#mpJoinUrl", "mp.joinLinkCopied"));
         $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
-        $("#mpPlayers").on("click", ".mp-kick", (e) => this.send({ type: "kick", playerId: e.currentTarget.dataset.id }));
+        $("#mpPlayers").on("click", ".mp-promote, .mp-kick", (e) => {
+            const { id, action } = e.currentTarget.dataset;
+            const name = this.state?.players.find(p => p.id === id)?.name;
+            // a plain-text dialog: the name must not come out escaped
+            if (!confirm(i18next.t(`mp.confirm.${action}`, { ns: "common", name, interpolation: { escapeValue: false } }))) return;
+            if (action === "promote") this.gaveHost = true;
+            this.send({ type: action, playerId: id });
+        });
         $("#BUTTON_MP_CHAT").on("click", () => this.toggleChat(!this.chatOpen));
         $("#BUTTON_MP_CHAT_CLOSE").on("click", () => this.toggleChat(false));
         $("#mpChat").on("keydown", (e) => { if (e.key === "Escape") this.toggleChat(false); });
@@ -118,7 +131,20 @@ export default class Multiplayer {
             this.send({ type: "chat", text });
             $("#mpChatInput").val("");
         });
+        $(".mp-resume-join").on("click", () => {
+            // the token gets us back in: a name field emptied in the entry form must not block that
+            if (!$("#mpName").val().trim()) $("#mpName").val(localStorage.getItem("mp:name") ?? "");
+            this.join(this.resumeCode);
+        });
+        $(".mp-resume-dismiss").on("click", () => {
+            this.unpoint(this.resumeCode);
+            this.closeResume();
+        });
         document.addEventListener("visibilitychange", () => this.onVisible());
+        // a page left for another one can live on in the back/forward cache with its socket open (the browser even
+        // answers the server's pings), so the game would keep waiting for this player. Closed, it is a dropped
+        // connection with its reconnect window; coming back reconnects (onclose retry / onVisible)
+        window.addEventListener("pagehide", () => this.ws?.close());
 
         $("#mpName").val(localStorage.getItem("mp:name") ?? "");
 
@@ -148,10 +174,13 @@ export default class Multiplayer {
     }
 
     readSettings() {
+        const rush = $("#mpTimer").val() === "rush";
         return {
             mode: $("#mpMode").val(),
-            timer: Number($("#mpTimer").val()),
+            timer: Number(rush ? $("#mpRush").val() : $("#mpTimer").val()),
             rounds: Number($("#mpRounds").val()),
+            // 0: the host moves on with NEXT
+            next: $("#mpNext").val() === "auto" ? Number($("#mpNextDelay").val()) : 0,
         };
     }
 
@@ -223,6 +252,8 @@ export default class Multiplayer {
         this.ws = null;
         previous?.close();
         this.hello = hello;
+        // on the way into a session: no hint, and a check still running must not bring it back
+        this.closeResume();
         // a JOIN clicked while a watch attempt still connects makes this a player again
         this.watching = hello.type === "watch";
         this.active = true;
@@ -232,8 +263,7 @@ export default class Multiplayer {
     }
 
     connect() {
-        const protocol = location.protocol === "https:" ? "wss" : "ws";
-        const ws = new WebSocket(`${protocol}://${location.host}/mp`);
+        const ws = new WebSocket(this.socketUrl());
         this.ws = ws;
         this.offset = null;
         ws.onopen = () => {
@@ -249,6 +279,49 @@ export default class Multiplayer {
             clearTimeout(this.retryTimer);
             this.retryTimer = setTimeout(() => this.connect(), RETRY_DELAYS[this.retry++] ?? 5000);
         };
+    }
+
+    socketUrl() {
+        const protocol = location.protocol === "https:" ? "wss" : "ws";
+        return `${protocol}://${location.host}/mp`;
+    }
+
+    /**
+     * Asks the server whether the last session we played in still knows our token, and offers the way back.
+     * On a socket of its own: a check is nobody in the session. No retry: without an answer there is no hint
+     */
+    checkResume() {
+        this.closeResume();
+        const code = localStorage.getItem("mp:last");
+        const token = code && localStorage.getItem(`mp:${code}`);
+        if (!token) return;
+        const ws = new WebSocket(this.socketUrl());
+        this.resumeCheck = ws;
+        ws.onopen = () => ws.send(JSON.stringify({ type: "check", code, token }));
+        ws.onmessage = (event) => {
+            ws.close();
+            // a newer check took over, or we are in a session again by now (e.g. the silent rejoin after a reload)
+            if (this.resumeCheck !== ws || this.active) return;
+            this.resumeCheck = null;
+            const msg = JSON.parse(event.data);
+            if (msg.type !== "resumable") return this.unpoint(code);
+            this.showResume(msg);
+        };
+    }
+
+    showResume({ code, phase, round, total }) {
+        this.resumeCode = code;
+        const text = phase === "lobby"
+            ? i18next.t("mp.resume.lobby", { ns: "common", code })
+            : i18next.t("mp.resume.game", { ns: "common", code, round: round + 1, total });
+        $(".mp-resume-text").text(text);
+        $(".mp-resume").prop("hidden", false);
+    }
+
+    closeResume() {
+        this.resumeCheck?.close();
+        this.resumeCheck = null;
+        $(".mp-resume").prop("hidden", true);
     }
 
     onVisible() {
@@ -267,7 +340,7 @@ export default class Multiplayer {
         this.watching = false;
         clearTimeout(this.retryTimer);
         clearInterval(this.countdown);
-        clearInterval(this.startTimer);
+        clearInterval(this.statusTimer);
         clearTimeout(this.nextTimer);
         this.guessFetch = null;
         // the lock ends with the game: singleplayer never unlocks RESULTS itself
@@ -283,6 +356,7 @@ export default class Multiplayer {
         this.unread = 0;
         $("#mpChatLog").empty();
         $("#mpChatInput").val("");
+        this.gaveHost = false;
         // the game screen is gone: a round seen again later (watching this session after leaving it) must count as fresh
         this.app.currentGuess = null;
         this.app.selectMode($(".mode-card.selected").data("mode") || "classic");
@@ -299,10 +373,36 @@ export default class Multiplayer {
 
     leave() {
         this.send({ type: "leave" });
-        // a big-screen tab never held a player token: it must not drop the one the player tab next to it uses
-        if (this.code && !this.watching) localStorage.removeItem(`mp:${this.code}`);
+        // only the lobby drops the player for good; from the countdown on the token is the way back (REJOIN hint).
+        // A big-screen tab never held a player token: it must not drop the one the player tab next to it uses
+        if (this.state?.phase === "lobby" && !this.watching) this.forget(this.code);
         this.stop();
         this.app.toMenu();
+    }
+
+    /**
+     * Leaving the lobby is final (the server drops the player, the token dies): asked first. Anywhere else the REJOIN
+     * hint brings the player back, and a big screen never was one. Only for clicks: onError leaves without asking
+     */
+    confirmLeave() {
+        if (this.watching || this.state?.phase !== "lobby") return true;
+        return confirm(i18next.t("mp.confirmLeave", { ns: "common" }));
+    }
+
+    /**
+     * Drops a stored token that cannot get us back in any more, and the REJOIN pointer to it
+     */
+    forget(code) {
+        localStorage.removeItem(`mp:${code}`);
+        this.unpoint(code);
+    }
+
+    /**
+     * No REJOIN hint for this session any more. Its token stays: another tab of this browser may still play with it,
+     * and its reload needs it (a dead token does no harm)
+     */
+    unpoint(code) {
+        if (localStorage.getItem("mp:last") === code) localStorage.removeItem("mp:last");
     }
 
     // ===== MESSAGES =====
@@ -315,7 +415,9 @@ export default class Multiplayer {
             this.me = msg.playerId;
             this.code = msg.code;
             localStorage.setItem(`mp:${msg.code}`, msg.token);
-            this.hello = { type: "join", code: msg.code, name: this.hello.name, token: msg.token };
+            // the session the REJOIN hint asks about (see checkResume)
+            localStorage.setItem("mp:last", msg.code);
+            this.hello ={ type: "join", code: msg.code, name: this.hello.name, token: msg.token };
             history.replaceState({}, "", `/?join=${msg.code}`);
             // a new connection has nothing in flight: a CANCEL lost with the old one can be clicked again
             $("#BUTTON_MP_CANCEL").prop("disabled", false);
@@ -333,6 +435,7 @@ export default class Multiplayer {
                 $("body").addClass("watch-mode");
                 history.replaceState({}, "", `/?watch=${msg.code}`);
             }
+            this.onHostChange(this.state?.hostId, msg.hostId);
             this.state = msg;
             this.renderState();
             break;
@@ -350,6 +453,9 @@ export default class Multiplayer {
             break;
         case "chat":
             this.onChat(msg);
+            break;
+        case "left":
+            this.toast("info", "mp.left", { name: msg.name });
             break;
         case "error":
             this.onError(msg.code, msg);
@@ -381,7 +487,7 @@ export default class Multiplayer {
         }
         this.toast("error", `mp.errors.${code}`);
         // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
-        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") localStorage.removeItem(`mp:${this.hello?.code}`);
+        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") this.forget(this.hello?.code);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "NAME_INVALID", "SESSION_FULL", "SERVER_BUSY"].includes(code);
         if (!rejected) return;
         // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen link, or an invite
@@ -396,6 +502,18 @@ export default class Multiplayer {
         this.showEntry();
     }
 
+    /**
+     * Tells this player when the host role came to them, or went away without their doing (the time after a game ran
+     * out, or they were gone for longer than a reload takes); never on the first state, never on the big screen
+     */
+    onHostChange(before, now) {
+        if (!before || before === now || this.watching) return;
+        if (now === this.me) this.toast("success", "mp.nowHost");
+        if (before !== this.me) return;
+        if (!this.gaveHost) this.toast("warning", "mp.noLongerHost");
+        this.gaveHost = false;
+    }
+
     // ===== RENDERING =====
 
     isHost() {
@@ -408,8 +526,16 @@ export default class Multiplayer {
         $("body").toggleClass("mp-host", this.isHost());
         $("#mpRoomCode").text(s.code);
         $("#mpMode").val(s.settings.mode);
-        $("#mpTimer").val(String(s.settings.timer));
+        const { timer, next } = s.settings;
+        // the seconds selects keep their last choice while hidden, so switching back brings it again
+        const rush = timer > 0 && timer < 60;
+        $("#mpTimer").val(rush ? "rush" : String(timer));
+        $("#mpRush").prop("hidden", !rush);
+        if (rush) $("#mpRush").val(String(timer));
         $("#mpRounds").val(String(s.settings.rounds));
+        $("#mpNext").val(next ? "auto" : "0");
+        $("#mpNextDelay").prop("hidden", !next);
+        if (next) $("#mpNextDelay").val(String(next));
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
@@ -421,10 +547,28 @@ export default class Multiplayer {
         if (s.phase === "lobby") {
             // a start that was called off leaves nothing loading or retrying behind
             this.preloader.keep([]);
-            this.showRoom();
+            if (this.backInLobby(s)) this.showRoom();
         }
         // a page that (re)opened while everyone waits for the images: the room shows who is loading, not the menu
         if (s.phase === "loading" && !$("#map_ui").is(":visible")) this.showRoom();
+    }
+
+    /**
+     * After a game each player stays on the final ranking until their own PLAY AGAIN, the big screen until the host's;
+     * whoever is still on the last reveal (the lobby came before the final) gets the ranking from it
+     */
+    backInLobby(s) {
+        const back = s.players.find(p => p.id === (this.watching ? s.hostId : this.me))?.back;
+        // undefined: a server from before PLAY AGAIN for everyone
+        if (back !== false) return true;
+        if ($("#results").is(":visible")) return false;
+        if ($("#map_ui").is(":visible") && this.lastReveal) {
+            this.finalFromReveal();
+            return false;
+        }
+        // a reload lost the results: nothing to stay for
+        if (!this.watching) this.send({ type: "lobby" });
+        return true;
     }
 
     /**
@@ -441,7 +585,8 @@ export default class Multiplayer {
         $("#BUTTON_MP_ENDROUND").prop("hidden", s.phase !== "round" || !host || s.settings.timer > 0);
         // any answer from the server unlocks NEXT / RESULTS (see next())
         clearTimeout(this.nextTimer);
-        this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last, disabled: false });
+        // with settings.next the countdown alone moves on
+        this.app.BUTTON_NEXT.prop({ hidden: s.phase !== "reveal" || !host || last || Boolean(s.settings.next), disabled: false });
         // after the last round every player may look at the results; the big screen follows the host
         this.app.BUTTON_RESULTS.prop({ hidden: s.phase !== "reveal" || !last || this.watching, disabled: false });
         this.renderLobbyButtons(s, starting);
@@ -449,14 +594,18 @@ export default class Multiplayer {
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
-        clearInterval(this.startTimer);
+        clearInterval(this.statusTimer);
         if (loading) {
             this.renderLoadingStatus();
-            if (s.startsAt !== null) this.startTimer = setInterval(() => this.renderLoadingStatus(), 250);
+            if (s.startsAt !== null) this.statusTimer = setInterval(() => this.renderLoadingStatus(), 250);
             $("#mpStatus").prop("hidden", false);
             return;
         }
-        if (s.phase === "reveal") {
+        if (s.phase === "reveal" && s.nextAt !== null) {
+            this.renderNextStatus();
+            this.statusTimer = setInterval(() => this.renderNextStatus(), 250);
+            $("#mpStatus").prop("hidden", false);
+        } else if (s.phase === "reveal") {
             $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", host || (last && !this.watching));
         }
         if (s.phase !== "round") return;
@@ -491,17 +640,28 @@ export default class Multiplayer {
     }
 
     /**
-     * Status line while a round waits: before round 1 the countdown, then how many have their images (startTimer ticks it)
+     * Status line while a round waits: before round 1 the countdown, then how many have their images (statusTimer ticks it)
      */
     renderLoadingStatus() {
         const s = this.state;
         const left = s.startsAt === null ? 0 : secondsUntil(s.startsAt, this.offset, Date.now());
-        if (left === 0) clearInterval(this.startTimer);
+        if (left === 0) clearInterval(this.statusTimer);
         const waited = s.players.filter(p => p.connected && !p.stalled);
         const text = left > 0
             ? i18next.t("mp.startingIn", { ns: "common", seconds: left })
             : i18next.t("mp.loadingImages", { ns: "common", ready: waited.filter(p => p.ready).length, total: waited.length });
         $("#mpStatus, #mpLobbyStatus").text(text);
+    }
+
+    /**
+     * Status line while the reveal counts down to the next round (or the results), for everyone
+     */
+    renderNextStatus() {
+        const s = this.state;
+        const left = secondsUntil(s.nextAt, this.offset, Date.now());
+        if (left === 0) clearInterval(this.statusTimer);
+        const key = s.round + 1 === s.total ? "mp.resultsIn" : "mp.nextIn";
+        $("#mpStatus").text(i18next.t(key, { ns: "common", seconds: left }));
     }
 
     // ===== GAME =====
@@ -719,11 +879,15 @@ export default class Multiplayer {
     }
 
     /**
-     * The host moves everyone on to the final screen; anyone else just goes there on their own:
-     * the last reveal already holds the final scores, sorted
+     * The host moves everyone on to the final screen (with settings.next the countdown does); anyone else just goes
+     * there on their own: the last reveal already holds the final scores, sorted
      */
     showResults() {
-        if (this.isHost()) return this.next();
+        if (this.isHost() && !this.state.settings.next) return this.next();
+        this.finalFromReveal();
+    }
+
+    finalFromReveal() {
         const ranking = this.lastReveal.results.map(r => ({ id: r.id, name: r.name, score: r.score }));
         const top = ranking[0]?.score;
         this.onFinal({ ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) });
@@ -742,8 +906,9 @@ export default class Multiplayer {
     renderPlayers(s) {
 
         const chip = p => $("<li>")
-            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p)].filter(Boolean).join(" "))
+            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
+            .attr("title", s.phase === "lobby" && p.back === false ? i18next.t("mp.onResults", { ns: "common" }) : null)
             .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
             .toggleClass("me", p.id === this.me);
         $("#mpChips").empty().append(s.players.map(chip));
@@ -752,9 +917,14 @@ export default class Multiplayer {
         $("#mpPlayers").empty().append(s.players.map(p => {
             const $li = chip(p);
             if (!kickable || p.id === this.me) return $li;
-            // set as an attribute, not HTML: the name must not come out escaped
-            const label = i18next.t("mp.kick", { ns: "common", name: p.name, interpolation: { escapeValue: false } });
-            return $li.append($("<button class=\"mp-kick\">✕</button>").attr({ "data-id": p.id, "aria-label": label, title: label }));
+            const button = (action, icon, key) => {
+                // set as an attribute, not HTML: the name must not come out escaped
+                const label = i18next.t(key, { ns: "common", name: p.name, interpolation: { escapeValue: false } });
+                return $(`<button class="mp-${action}">`).text(icon).attr({ "data-id": p.id, "data-action": action, "aria-label": label, title: label });
+            };
+            // only to someone who is there: the role would move on again at once (see fixHost on the server)
+            if (p.connected && p.back !== false) $li.append(button("promote", "🔑", "mp.makeHost"));
+            return $li.append(button("kick", "✕", "mp.kick"));
         }));
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
         $("#mpRanking li").each((_, li) => {
@@ -854,11 +1024,13 @@ export default class Multiplayer {
         if (open && matchMedia("(pointer: fine)").matches) $("#mpChatInput").trigger("focus");
     }
 
-    describeSettings({ mode, timer, rounds }) {
+    describeSettings({ mode, timer, rounds, next }) {
         const t = (key) => i18next.t(key, { ns: "common" });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
-        const timerLabel = { 0: t("timer.chill"), 60: t("timer.timed"), 15: t("timer.rush") }[timer];
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}`;
+        const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
+        // a no-break space keeps "10 s" together when the summary wraps
+        const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
+        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}`;
     }
 
     showEntry() {
@@ -890,7 +1062,8 @@ export default class Multiplayer {
             .catch(err => console.error("Copy failed", err));
     }
 
-    toast(type, key, values = {}) {
-        this.app.openToast(type, i18next.t(key, { ns: "common", ...values }), "");
+    toast(type, key, options = {}) {
+        // openToast sets innerHTML: values (a player name is user input) go through i18next, which escapes them
+        this.app.openToast(type, i18next.t(key, { ns: "common", ...options }), "");
     }
 }

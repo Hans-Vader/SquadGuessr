@@ -108,6 +108,16 @@ test("validSettings accepts only allowed values", () => {
     assert.equal(validSettings(null), false);
 });
 
+test("validSettings: rush takes 5–30 s in 5 s steps; the next round comes from the host (0) or after 5–30 s", () => {
+    const settings = (over) => validSettings({ mode: "classic", timer: 0, rounds: 5, ...over });
+    [0, 5, 10, 25, 30, 60].forEach(timer => assert.equal(settings({ timer }), true, `timer ${timer}`));
+    [3, 17, 35, 45, 61].forEach(timer => assert.equal(settings({ timer }), false, `timer ${timer}`));
+    [0, 5, 15, 30].forEach(next => assert.equal(settings({ next }), true, `next ${next}`));
+    [3, 17, 35, 60, "15", null].forEach(next => assert.equal(settings({ next }), false, `next ${next}`));
+    // an older cached client knows nothing of next
+    assert.equal(settings({ next: undefined }), true);
+});
+
 test("validGuesses checks count and every field", () => {
     assert.equal(validGuesses([guess(), guess(), guess()], 3), true);
     assert.equal(validGuesses([guess({ submitter: "Dan" }), guess({ map: "narva" }), guess({ submitter: null })], 3), true);
