@@ -1,7 +1,12 @@
 import { findMap } from "../src/js/data/maps.js";
 
 const MODES = ["classic", "mapFinder"];
-const TIMERS = [0, 15, 60];
+// rush and the automatic next round: 5–30 s in 5 s steps
+const SECONDS = [5, 10, 15, 20, 25, 30];
+// chill, rush, timed
+const TIMERS = [0, ...SECONDS, 60];
+// 0: the host moves on with NEXT
+const NEXTS = [0, ...SECONDS];
 const ROUNDS = [3, 5, 10];
 // any plain file name under /img/ (real ones look like "Screenshot (301).webp"): a rejected name fails START for the
 // whole game. Kept out is only what could leave the double-quoted HTML attribute the url ends up in or the path
@@ -22,7 +27,9 @@ export function cleanName(name) {
 }
 
 export function validSettings(s) {
-    return Boolean(s) && MODES.includes(s.mode) && TIMERS.includes(s.timer) && ROUNDS.includes(s.rounds);
+    // an older cached client sends no next
+    return Boolean(s) && MODES.includes(s.mode) && TIMERS.includes(s.timer) && ROUNDS.includes(s.rounds)
+        && (s.next === undefined || NEXTS.includes(s.next));
 }
 
 export function validGuesses(guesses, rounds) {

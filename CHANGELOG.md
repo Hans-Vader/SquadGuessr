@@ -1,3 +1,30 @@
+# <img src="https://img.shields.io/badge/-minor%20release-cd6f68?style=for-the-badge"> **2.1.0** *(2026-10-17)*
+
+</br><img src="https://img.shields.io/badge/-new%20features-green">
+- Added an optional automatic next round in multiplayer: a 5–30 s countdown after each reveal instead of waiting for the host's NEXT (by Hans-Vader in [#24](https://github.com/sh4rkman/SquadGuessr/pull/24))
+- Added a rush timer option in multiplayer (5–30 s per round); "Timed" now shows its duration (by Hans-Vader in [#24](https://github.com/sh4rkman/SquadGuessr/pull/24))
+- Added host handover: the host can make another player host from the lobby, and the first player back becomes host if the host stays on the results for 30 s (by Hans-Vader in [#24](https://github.com/sh4rkman/SquadGuessr/pull/24))
+- Added ranking movement arrows on the reveal (▲ up, ▼ down) on phones and on the big screen (by Hans-Vader in [#25](https://github.com/sh4rkman/SquadGuessr/pull/25))
+- Added a REJOIN hint on the menu and multiplayer screen to get back into a running game after dropping out (by Hans-Vader in [#26](https://github.com/sh4rkman/SquadGuessr/pull/26))
+- Added a reset view button in the minimap zoom bar (by Hans-Vader in [#26](https://github.com/sh4rkman/SquadGuessr/pull/26))
+- Added every existing guess position as a dot on the "Submit a guess" map, to spot the areas nobody covered yet
+
+</br><img src="https://img.shields.io/badge/-%20improv%20-orange"> 
+- PLAY AGAIN no longer pulls everyone into the lobby: each player leaves the final ranking on their own (by Hans-Vader in [#24](https://github.com/sh4rkman/SquadGuessr/pull/24))
+- Kicking a player and making someone host now ask for confirmation (by Hans-Vader in [#24](https://github.com/sh4rkman/SquadGuessr/pull/24))
+- Players can now join during the start countdown (by Hans-Vader in [#26](https://github.com/sh4rkman/SquadGuessr/pull/26))
+- Leaving the lobby asks for confirmation and tells the others who left (by Hans-Vader in [#26](https://github.com/sh4rkman/SquadGuessr/pull/26))
+- Leaving during the start countdown or a game is no longer final: you can come back (by Hans-Vader in [#26](https://github.com/sh4rkman/SquadGuessr/pull/26))
+- The multiplayer reconnect window is now 30 s (was 15 s), and a page left in the browser's back/forward cache no longer holds up the game (by Hans-Vader in [#26](https://github.com/sh4rkman/SquadGuessr/pull/26))
+- Disabled Belaya and flooded Narva from maps list
+- Removed deprecated references to /api/v2/ and API_KEY 
+
+
+
+</br></br><!-- CHANGELOG SPLIT MARKER -->
+
+
+
 # <img src="https://img.shields.io/badge/-major%20release-b22222?style=for-the-badge"> **2.0.0** *(2026-10-08)*
 
 </br><img src="https://img.shields.io/badge/-new%20features-green">

@@ -63,9 +63,42 @@
             text-align: center;
         }
     }
+    // the host's settings: labels on the left, every control the same height and as wide as its column
+    #mpSettings {
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        gap: 0.5em 1em;
+        width: 100%;
+        label {
+            font-size: 0.85em;
+            color: #aaa;
+            text-align: left;
+        }
+        // a label with an explanation on hover: dotted like an abbreviation
+        label[data-i18n-title] {
+            text-decoration: underline dotted;
+            text-underline-offset: 0.25em;
+            cursor: help;
+        }
+    }
+    // a setting and its seconds: the seconds keep a fixed width, a hidden one leaves the whole row to the setting
+    .mp-pair {
+        display: flex;
+        gap: 0.5em;
+        min-width: 0;
+        select:first-child {
+            flex: 1;
+        }
+        select + select {
+            flex: 0 0 6em;
+        }
+    }
     select {
+        width: 100%;
+        min-width: 0;
+        height: 44px;
+        padding: 0 0.6em;
         background: #272727;
-        padding: 0.6em;
         border-radius: 10px;
         font-size: 1em;
     }
@@ -154,7 +187,8 @@
             background: variables.$newColor;
         }
     }
-    // host's kick icon inside a lobby chip: none of the big global button look
+    // host's promote and kick icons inside a lobby chip: none of the big global button look
+    .mp-promote,
     .mp-kick {
         font-size: 1em;
         padding: 0 0 0 0.5em;
@@ -233,7 +267,7 @@ body.mp-ended {
     }
 }
 
-body.mp-active:not(.mp-host) #BUTTON_PLAYAGAIN,
+body.watch-mode #BUTTON_PLAYAGAIN,
 body.mp-ended #BUTTON_PLAYAGAIN {
     display: none !important;
 }
@@ -253,6 +287,12 @@ body.mp-host {
     .guest-only {
         display: none !important;
     }
+}
+
+// .host-only shows it with display: revert !important, which would turn the settings grid back into a block
+
+body.mp-host #mpSettings {
+    display: grid !important;
 }
 
 // in-game ranking must leave room for the host's NEXT button
@@ -501,5 +541,58 @@ body.watch-mode.mp-reveal {
             // emoji fonts draw the glyph lower than the capitals beside it: lifted onto their middle
             translate: 0 -0.18em;
         }
+    }
+}
+
+// "still in a game": on the menu and on top of the multiplayer entry form; text on top, REJOIN below
+
+.mp-resume {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    width: min(360px, 100%);
+    padding: 0.8em 1em 1em;
+    border: 2px solid variables.$mainColor;
+    border-radius: 12px;
+    background: rgba(17, 68, 126, 0.15);
+    &[hidden] {
+        display: none !important;
+    }
+    .mp-resume-text {
+        // room for the ✕ in the corner
+        padding: 0 1.6em;
+    }
+    .mp-resume-join {
+        height: 44px;
+        // the global 18px button padding leaves 8px for the text in 44px, which pushes it below the middle
+        padding: 0 1em;
+        border-radius: 8px;
+        // like the entry form's buttons: the global 1.6em (desktop) is meant for the big menu buttons
+        font-size: 1.05em;
+    }
+    .mp-resume-dismiss {
+        position: absolute;
+        top: 0.3em;
+        right: 0.3em;
+        padding: 0.2em 0.5em;
+        background: transparent;
+    }
+}
+
+#menu .mp-resume {
+    margin-bottom: 2em;
+}
+
+// the entry form makes every button full width and 52px high: the hint keeps its own
+
+#lobby #mpEntry .mp-resume {
+    .mp-resume-join {
+        height: 44px;
+    }
+    .mp-resume-dismiss {
+        width: auto;
+        height: auto;
+        padding: 0.2em 0.5em;
     }
 }

@@ -1,5 +1,11 @@
 @use "../shared/variables";
 
+// dots of the guesses already in the game, on the submit map
+.submit-existing {
+    fill: variables.$mainColor;
+    stroke: #fff;
+}
+
 #submit {
     height: 100%;
     max-width: 1400px;

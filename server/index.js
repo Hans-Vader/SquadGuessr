@@ -11,7 +11,7 @@ const MAX_SESSIONS = 1000;
 // far above any burst a real client needs; a client that stops reading must not make us queue replies forever
 const MAX_BUFFERED = 64 * 1024;
 // what a client may send first on a socket, besides "create"
-const ENTRY = ["join", "watch", "peek"];
+const ENTRY = ["join", "watch", "check", "peek"];
 
 /**
  * Multiplayer session server: routes socket messages to Session instances
@@ -89,6 +89,8 @@ export function startServer({ port = 3001, idleMs = IDLE_MS, maxSessions = MAX_S
             const code = typeof msg.code === "string" ? msg.code.toUpperCase() : null;
             const session = sessions.get(code) ?? retired.get(code);
             if (!session) return send(ws, { type: "error", code: "SESSION_NOT_FOUND" });
+            // a check or a peek binds nothing: its close is no player leaving and no activity that keeps an orphaned session alive
+            if (msg.type === "check") return session.check(ws, msg.token);
             if (msg.type === "peek") return session.peek(ws, code, msg.token);
             // watching ignores the code: a big screen on an old link keeps following the session
             const ok = msg.type === "join" ? session.join(ws, msg, code) : session.watch(ws);

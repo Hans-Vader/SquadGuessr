@@ -31,6 +31,5 @@ server {
     location /api/ {
         proxy_pass $api;
         proxy_ssl_server_name on;
-        proxy_set_header X-API-Key "${API_KEY}";
     }
 }

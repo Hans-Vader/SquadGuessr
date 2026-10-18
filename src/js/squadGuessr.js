@@ -158,6 +158,8 @@ export default class SquadGuessr {
         this.BUTTON_PLAYAGAIN.on("click", () => this.mp.active ? this.mp.send({ type: "lobby" }) : this.startNewGame());
         this.BUTTON_SHARE.on("click", () => this.copyResults());
         this.MAIN_LOGO.on("click", () => {
+            // a "no" to leaving the lobby changes nothing at all
+            if (this.mp.active && !this.mp.confirmLeave()) return;
             this.stopTimer();
             if (this.mp.active) return this.mp.leave();
             this.toMenu();
@@ -287,7 +289,7 @@ export default class SquadGuessr {
      * @throws {Error} Throws an error if the network request fails or the response is not OK.
      */
     async getGuess(number) {
-        const url = `/api/v2/get/squadGuess?nb=${number}`;
+        const url = `/api/get/squadGuess?nb=${number}`;
         try {
             const response = await fetch(url, {
                 headers: { "X-App-Version": this.version }
@@ -363,7 +365,7 @@ export default class SquadGuessr {
      * The hint image's URL; the multiplayer preloads exactly this one
      */
     hintUrl(url) {
-        return `/api/v2${url}`;
+        return `/api${url}`;
     }
 
     /**
@@ -502,7 +504,7 @@ export default class SquadGuessr {
         this.gameData.forEach(guess => {
             const $img = $(`
                 <div class="map-thumbnail">
-                    <img src="/api/v2${guess.url}" alt="Guess Image">
+                    <img src="/api${guess.url}" alt="Guess Image">
                     <span class="roundScore">+${guess.points}</span>
                 </div>
             `);
@@ -564,6 +566,9 @@ export default class SquadGuessr {
     // ===== UI MANAGEMENT =====
 
     switchUI(page) {
+
+        // the menu and the multiplayer entry form offer the way back into a game this browser dropped out of
+        if (!this.mp.active && (page === "menu" || page === "lobby")) this.mp.checkResume();
 
         // every page plus the footer logos: whatever a state does not show gets hidden
         const parts = ["#menu", "#timer_ui", "#map_ui", "#results", "#lobby", "#submit", "#review", "#footerLogos"];
