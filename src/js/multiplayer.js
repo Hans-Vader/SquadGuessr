@@ -773,6 +773,12 @@ export default class Multiplayer {
         if (msg.index === this.revealIndex && app.currentGuess?.url === solution.url) return;
         this.revealIndex = msg.index;
         this.lastReveal = msg;
+        // small screens: a chat opened once the answer was in would cover the ranking, so the reveal closes it
+        // (only for now, like the round does)
+        if (matchMedia(SMALL_SCREEN).matches) {
+            this.chatOpen = false;
+            this.renderChat();
+        }
 
         clearInterval(this.countdown);
         app.stopTimer();
@@ -994,15 +1000,21 @@ export default class Multiplayer {
     }
 
     /**
-     * The chat is for players, in the lobby and between rounds: never while guessing, never on the big screen
+     * The chat is for players: in the lobby, between rounds, and in a round once their answer is in (the server sends
+     * nobody who still guesses a line of it); never on the big screen
      */
     renderChat() {
-        const shown = Boolean(this.state) && this.me !== null && !this.watching && this.state.phase !== "round";
-        // small screens: left open, the chat would cover NEXT and the ranking at every reveal, so a round closes it
-        // (only for now: the remembered choice still opens it in the next lobby after a reload)
-        if (this.state?.phase === "round" && matchMedia(SMALL_SCREEN).matches) this.chatOpen = false;
+        const me = this.state?.players.find(p => p.id === this.me);
+        const shown = Boolean(me) && !this.watching && (this.state.phase !== "round" || me.answered);
+        // small screens: left open, the chat would cover the map, so a round closes it until the answer is in (and the
+        // reveal again, see onReveal; only for now: the remembered choice still opens it in the next lobby after a reload)
+        if (!shown && this.state?.phase === "round" && matchMedia(SMALL_SCREEN).matches) this.chatOpen = false;
         const wasVisible = $("#mpChatPanel").is(":visible");
+        const docked = $("body").hasClass("mp-chat-open");
         $("body").toggleClass("mp-chat", shown).toggleClass("mp-chat-open", shown && this.chatOpen);
+        // docked on wide screens, the chat takes its room from the game (also when it opens with the answer): the map
+        // has to learn its new size
+        if (docked !== $("body").hasClass("mp-chat-open") && $("#map_ui").is(":visible")) this.app.minimap.invalidateSize();
         $("#mpChatPanel").prop("hidden", !this.chatOpen);
         $("#BUTTON_MP_CHAT").attr("aria-expanded", String(this.chatOpen));
         $("#mpChatUnread").text(this.unread > 9 ? "9+" : this.unread).prop("hidden", this.unread === 0);
@@ -1018,8 +1030,6 @@ export default class Multiplayer {
         // the keyboard focus goes back to the button instead of getting lost in the closed panel
         if (!open && document.getElementById("mpChatPanel").contains(document.activeElement)) $("#BUTTON_MP_CHAT").trigger("focus");
         this.renderChat();
-        // docked on wide screens, the chat takes its room from the game: the map has to learn its new size
-        if ($("#map_ui").is(":visible")) this.app.minimap.invalidateSize();
         // touch screens would pull up their keyboard over half the screen just for reading
         if (open && matchMedia("(pointer: fine)").matches) $("#mpChatInput").trigger("focus");
     }

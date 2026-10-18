@@ -1056,7 +1056,7 @@ test("a chat line reaches every player, cleaned and capped, but never a watcher"
     assert.equal(all(tv, "chat").length, 0);
 });
 
-test("empty chat lines and lines during a running round are ignored silently", () => {
+test("empty chat lines and lines from whoever still guesses are ignored silently", () => {
     const { s, host, guest, all, last } = started();
     s.handle(guest, { type: "chat", text: "psst, it is Narva" });
     s.handle(guest, { type: "chat", text: 42 });
@@ -1067,6 +1067,65 @@ test("empty chat lines and lines during a running round are ignored silently", (
     // nothing ignored used up the guest's turn
     s.handle(guest, { type: "chat", text: "close one" });
     assert.equal(last(host, "chat").text, "close one");
+});
+
+// Hans, Max and Ida in round 1, after a chat line in the lobby: one answer does not end the round
+function threeInRound() {
+    const ctx = withGuest();
+    ctx.ida = {};
+    ctx.s.join(ctx.ida, { name: "Ida" });
+    ctx.s.handle(ctx.host, { type: "chat", text: "hi" });
+    ctx.advance(CHAT_GAP_MS);
+    ctx.begin();
+    ctx.answer = (conn) => ctx.s.handle(conn, { type: "answer", index: ctx.s.round, lat: -100, lng: 200 });
+    ctx.texts = (conn) => ctx.all(conn, "chat").map(m => m.text);
+    return ctx;
+}
+
+test("while a round runs, whoever answered chats with the others who answered; who still guesses neither reads nor writes", () => {
+    const { s, host, guest, ida, answer, texts, last } = threeInRound();
+    answer(host);
+    answer(ida);
+    s.handle(guest, { type: "chat", text: "Narva?" });
+    s.handle(host, { type: "chat", text: "gg" });
+    assert.deepEqual([texts(host), texts(ida), texts(guest)], [["hi", "gg"], ["hi", "gg"], ["hi"]]);
+    assert.equal(last(guest, "error"), undefined);
+});
+
+test("whoever answers gets the lines written while they guessed, and nothing twice", () => {
+    const { s, host, guest, ida, answer, texts, advance } = threeInRound();
+    answer(host);
+    s.handle(host, { type: "chat", text: "a" });
+    advance(CHAT_GAP_MS);
+    s.handle(host, { type: "chat", text: "b" });
+    answer(guest);
+    assert.equal(s.phase, "round");
+    assert.deepEqual(texts(guest), ["hi", "a", "b"]);
+    assert.deepEqual(texts(ida), ["hi"]);
+});
+
+test("the reveal brings the round's lines to whoever never answered", () => {
+    const { s, host, guest, ida, answer, texts } = threeInRound();
+    answer(host);
+    s.handle(host, { type: "chat", text: "a" });
+    s.handle(host, { type: "endRound" });
+    assert.equal(s.phase, "reveal");
+    assert.deepEqual([texts(guest), texts(ida)], [["hi", "a"], ["hi", "a"]]);
+});
+
+test("back during a round, the history holds the round's lines only for whoever answered", () => {
+    const { s, host, guest, ida, answer, last } = threeInRound();
+    const rejoin = (conn) => {
+        const { token } = last(conn, "welcome");
+        s.disconnect(conn);
+        const phone = {};
+        s.join(phone, { token });
+        return last(phone, "welcome").chat.map(m => m.text);
+    };
+    answer(host);
+    answer(ida);
+    s.handle(host, { type: "chat", text: "a" });
+    assert.deepEqual([rejoin(guest), rejoin(ida)], [["hi"], ["hi", "a"]]);
 });
 
 test("the server allows a player a chat line every half CHAT_GAP_MS and tells whoever writes faster", () => {

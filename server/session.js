@@ -47,6 +47,8 @@ export class Session {
         this.kicked = [];
         // the last CHAT_HISTORY lines: { id, name, text }
         this.messages = [];
+        // how many of the newest messages were written in the running round: kept from whoever still guesses
+        this.roundLines = 0;
         this.lastActivity = now();
     }
 
@@ -296,11 +298,12 @@ export class Session {
 
     /**
      * A chat line for every player, watchers never see it (the big screen is often on a projector or a stream).
-     * Ignored silently during a running round, where it would only distract from guessing: a line sent just as
-     * the round starts is normal. Too fast is an error, so the client keeps the text for another try.
+     * During a round only between players whose answer is in: a line could give the answer away. Whoever still
+     * guesses is ignored silently (a line sent just as the round starts is normal) and gets the round's lines once
+     * they answer or the round ends. Too fast is an error, so the client keeps the text for another try.
      */
     chat(player, text) {
-        if (this.phase === "round") return;
+        if (!this.mayChat(player)) return;
         // before the cleaning, the only part that costs: a flood of lines must not cost more than a comparison each.
         // Half the client's pause: a line the network held up must not be turned away because the next came on time
         if (this.now() - player.chatAt < CHAT_GAP_MS / 2) return this.error(player.conn, "CHAT_TOO_FAST");
@@ -310,12 +313,29 @@ export class Session {
         const line = { id: player.id, name: player.name, text: clean };
         // a new array: a welcome already handed out keeps the history it was sent with
         this.messages = [...this.messages, line].slice(-CHAT_HISTORY);
-        this.sendPlayers({ type: "chat", ...line });
+        if (this.phase === "round") this.roundLines++;
+        this.players.forEach(p => { if (p.conn && this.mayChat(p)) this.send(p.conn, { type: "chat", ...line }); });
+    }
+
+    /**
+     * Reads and writes the chat: always, except during a round before their answer is in (it cannot change after)
+     */
+    mayChat(player) {
+        return this.phase !== "round" || Boolean(player.answers[this.round]);
+    }
+
+    /**
+     * The running round's lines, for a player who could not read them while guessing
+     */
+    catchUp(player) {
+        if (!player.conn || this.roundLines === 0) return;
+        this.messages.slice(-this.roundLines).forEach(line => this.send(player.conn, { type: "chat", ...line }));
     }
 
     startRound() {
         this.startsAt = null;
         this.phase = "round";
+        this.roundLines = 0;
         this.deadline = this.settings.timer > 0 ? this.now() + this.settings.timer * 1000 : null;
         this.broadcastState();
         this.broadcast(this.roundMsg());
@@ -334,6 +354,7 @@ export class Session {
             ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
             : { lat: null, lng: null, mapName: msg.mapName };
         player.answers[this.round] = { ...answer, ...scoreAnswer(this.settings.mode, this.guesses[this.round], answer) };
+        this.catchUp(player);
         this.broadcastState();
         this.checkRoundEnd();
     }
@@ -366,6 +387,7 @@ export class Session {
     }
 
     endRound() {
+        const guessing = [...this.players.values()].filter(p => !p.answers[this.round]);
         this.phase = "reveal";
         this.deadline = null;
         this.nextAt = this.settings.next ? this.now() + this.settings.next * 1000 : null;
@@ -375,6 +397,7 @@ export class Session {
         });
         this.broadcastState();
         this.broadcast(this.revealMsg());
+        guessing.forEach(p => this.catchUp(p));
     }
 
     next(conn) {
@@ -558,7 +581,8 @@ export class Session {
     }
 
     welcome(player) {
-        this.send(player.conn, { type: "welcome", playerId: player.id, token: player.token, code: this.code, isHost: player.id === this.hostId, chat: this.messages });
+        const chat = this.mayChat(player) ? this.messages : this.messages.slice(0, Math.max(0, this.messages.length - this.roundLines));
+        this.send(player.conn, { type: "welcome", playerId: player.id, token: player.token, code: this.code, isHost: player.id === this.hostId, chat });
     }
 
     resetScores() {
@@ -570,15 +594,8 @@ export class Session {
     }
 
     broadcast(msg) {
-        this.sendPlayers(msg);
-        this.watchers.forEach(conn => this.send(conn, msg));
-    }
-
-    /**
-     * To every connected player, never to a watcher
-     */
-    sendPlayers(msg) {
         this.players.forEach(p => { if (p.conn) this.send(p.conn, msg); });
+        this.watchers.forEach(conn => this.send(conn, msg));
     }
 
     error(conn, code, details = {}) {

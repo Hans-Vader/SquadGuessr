@@ -538,12 +538,17 @@ body.watch-mode.mp-reveal {
     }
 }
 
-// chat: lobby and between rounds, players only (Multiplayer.renderChat). Sizes in rem: the footer shrinks its font on phones
+// chat: lobby, between rounds and once the answer is in, players only (Multiplayer.renderChat). Sizes in rem: the footer shrinks its font on phones
 
 #mpChat {
-    // the button takes the footer's right corner, which only the round timer uses: there is no chat while a round runs
+    // the button takes the footer's right corner
     --footer: 8dvh;
     display: none;
+}
+
+body.mp-chat #timerWrapper {
+    // the round timer ends in that corner too: it moves left of the button
+    margin-right: 3rem;
 }
 
 body.mp-chat #mpChat {
