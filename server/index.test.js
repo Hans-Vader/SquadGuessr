@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import WebSocket from "ws";
-import { startServer } from "./index.js";
+import { startServer, MSG_BURST, MSG_PER_S } from "./index.js";
 
 /**
  * Server on a random port; the server and every client are closed after the test even when an assertion fails
@@ -146,7 +146,8 @@ test("sessions nobody is connected to make room when the server is full", { time
 });
 
 test("a client that stops reading is dropped instead of buffering replies forever", { timeout: 10000 }, async (t) => {
-    const client = await serve(t);
+    // no message limit here: it would cut the flood off long before the replies pile up
+    const client = await serve(t, { msgBurst: Infinity });
     const attacker = await client();
     attacker._socket.pause();
     for (let i = 0; i < 300000; i++) attacker.send("x");
@@ -219,6 +220,24 @@ test("after play again the old code shows its results, the new one leads into th
     // once the session is dropped for idling, its old codes go with it
     [host, guest, tv, reloadedTv].forEach(ws => ws.close());
     while ((await ask({ type: "peek", code })).type !== "error") await tick(100);
+});
+
+test("a connection sending faster than any client would is cut off before its messages are read; the others go on", { timeout: 5000 }, async (t) => {
+    const client = await serve(t);
+    const flooder = await client();
+    for (let i = 0; i <= MSG_BURST; i++) flooder.send("{}");
+    await once(flooder, "close");
+
+    // a burst up to the limit is fine, and the allowance comes back over time
+    const calm = await client();
+    for (let i = 0; i < MSG_BURST - 1; i++) calm.send("{}");
+    await tick(2 * 1000 / MSG_PER_S + 50);
+    calm.sendJson(CREATE);
+    calm.sendJson({ type: "settings", settings: CREATE.settings });
+    assert.equal((await calm.next("welcome")).code.length, 4);
+    await calm.next("state");
+    await tick(50);
+    assert.equal(calm.readyState, WebSocket.OPEN);
 });
 
 test("check answers on its own socket, counts as its one greeting and makes it nobody in the session", { timeout: 5000 }, async (t) => {
