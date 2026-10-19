@@ -184,6 +184,7 @@ export default class Multiplayer {
             rounds: Number($("#mpRounds").val()),
             // 0: the host moves on with NEXT
             next: $("#mpNext").val() === "auto" ? Number($("#mpNextDelay").val()) : 0,
+            keepCode: $("#mpKeepCode").val() === "1",
         };
     }
 
@@ -551,6 +552,7 @@ export default class Multiplayer {
         $("#mpNext").val(next ? "auto" : "0");
         $("#mpNextDelay").prop("hidden", !next);
         if (next) $("#mpNextDelay").val(String(next));
+        $("#mpKeepCode").val(s.settings.keepCode ? "1" : "0");
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
@@ -1067,13 +1069,14 @@ export default class Multiplayer {
         if (open && matchMedia("(pointer: fine)").matches) $("#mpChatInput").trigger("focus");
     }
 
-    describeSettings({ mode, timer, rounds, next }) {
+    describeSettings({ mode, timer, rounds, next, keepCode }) {
         const t = (key) => i18next.t(key, { ns: "common" });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
         // a no-break space keeps "10 s" together when the summary wraps
         const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}`;
+        const codeLabel = keepCode ? ` · ${t("mp.code")}: ${t("mp.codeKeep")}` : "";
+        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${codeLabel}`;
     }
 
     showEntry() {

@@ -4,7 +4,7 @@ import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_R
 import { CHAT_MAX, CHAT_GAP_MS, CHAT_HISTORY } from "../src/js/chatLimits.js";
 import { mapSize } from "../src/js/scoring.js";
 
-const CLASSIC = { mode: "classic", timer: 0, rounds: 3, next: 0 };
+const CLASSIC = { mode: "classic", timer: 0, rounds: 3, next: 0, keepCode: false };
 const GUESSES = [
     { map: "Narva", url: "/img/guesses/a.webp", lat: -100, lng: 200, submitter: "Dan" },
     { map: "GooseBay", url: "/img/guesses/b.webp", lat: -300, lng: 400 },
@@ -143,12 +143,13 @@ test("only the host may control the game", () => {
 test("host can change settings in the lobby", () => {
     const { s, host, guest, last } = withGuest();
     s.handle(host, { type: "settings", settings: { mode: "mapFinder", timer: 20, rounds: 5, next: 15 } });
-    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 20, rounds: 5, next: 15 });
+    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 20, rounds: 5, next: 15, keepCode: false });
 });
 
-test("settings without next (an older cached client) leave the next round to the host", () => {
+test("settings without next or keepCode (an older cached client) leave the next round to the host and renew the code", () => {
     const { last, host } = setup({ mode: "classic", timer: 0, rounds: 3 });
     assert.equal(last(host, "state").settings.next, 0);
+    assert.equal(last(host, "state").settings.keepCode, false);
 });
 
 test("start rejects guesses that do not match settings.rounds", () => {
@@ -1115,6 +1116,17 @@ test("a player of the old game who was away during play again gets into the next
     const tablet = {};
     assert.equal(s.join(tablet, { name: "Ann", token: annToken }, "ABCD"), false);
     assert.equal(last(tablet, "ended").ranking.length, 3);
+});
+
+test("with keepCode play again keeps the code: it leads everyone into the next lobby instead of to the results", () => {
+    const { s, host, guest, last } = started({ ...CLASSIC, keepCode: true });
+    toLastReveal(s, host);
+    s.handle(guest, { type: "lobby" });
+    assert.equal(s.code, "ABCD");
+    assert.equal(s.past.size, 0);
+    assert.equal(last(guest, "welcome").code, "ABCD");
+    const eve = {};
+    assert.equal(s.join(eve, { name: "Eve" }, "ABCD"), true);
 });
 
 test("a session keeps the results of its last MAX_PAST games: the oldest finished game's link stops working first", () => {

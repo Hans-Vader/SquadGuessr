@@ -25,7 +25,8 @@ const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "k
 /**
  * One multiplayer session: lobby → loading → round → reveal → loading → … → final
  * The first loading is also the start countdown: round 1 never begins before `startsAt`.
- * Every game after the first one gets a fresh code from the injected `newCode()`; the old ones stay in `past`.
+ * Every game after the first one gets a fresh code from the injected `newCode()`, the old ones stay in `past`;
+ * with settings.keepCode the code stays until the session goes idle.
  * Knows nothing about sockets: `send(conn, msg)` is injected and `conn` is opaque.
  * On every phase change `state` is sent before `prepare`/`round`/`reveal`/`final`.
  */
@@ -453,11 +454,14 @@ export class Session {
         }
         // also from the last reveal: players see their results there without waiting for the host's "next"
         if (!this.over()) return this.error(player.conn, "INVALID");
-        // the finished game keeps its code (index.js finds the session by it): its link shows the results
-        this.past.set(this.code, { final: this.finalMsg(), tokens: new Set([...this.players.values()].map(p => p.token)) });
-        // the oldest finished game's link stops working first
-        if (this.past.size > MAX_PAST) this.past.delete(this.past.keys().next().value);
-        this.code = this.newCode();
+        // the finished game keeps its code (index.js finds the session by it): its link shows the results.
+        // With keepCode the code leads into the next lobby instead
+        if (!this.settings.keepCode) {
+            this.past.set(this.code, { final: this.finalMsg(), tokens: new Set([...this.players.values()].map(p => p.token)) });
+            // the oldest finished game's link stops working first
+            if (this.past.size > MAX_PAST) this.past.delete(this.past.keys().next().value);
+            this.code = this.newCode();
+        }
         this.phase = "lobby";
         this.guesses = [];
         this.round = 0;
@@ -691,8 +695,8 @@ export class Session {
     }
 }
 
-function pickSettings({ mode, timer, rounds, next = 0 }) {
-    return { mode, timer, rounds, next };
+function pickSettings({ mode, timer, rounds, next = 0, keepCode = false }) {
+    return { mode, timer, rounds, next, keepCode };
 }
 
 function clamp(value, min, max) {
