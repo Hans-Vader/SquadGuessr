@@ -67,10 +67,13 @@
         "resultsIn": "Results in {{seconds}} s…",
         "nextHost": "Host",
         "nextAuto": "Auto",
+        "codeNew": "New each game",
+        "codeKeep": "Keep",
         "settings": {
             "rounds": "Rounds",
             "next": "Next round",
-            "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up."
+            "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up.",
+            "codeHint": "Whether PLAY AGAIN gives the next game a new code. Keep: the code and its links stay the same until the lobby has been empty for a while."
         },
         "gameRunning": "This game has already started. You can still watch it.",
         "ended": "This game is already over.",
