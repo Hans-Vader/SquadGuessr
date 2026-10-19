@@ -102,6 +102,7 @@
         },
         "confirmLeave": "确定离开房间吗？之后需要邀请码才能重新加入。",
         "joined": "{{name}} 加入了房间",
+        "kicked": "{{name}} 被移出了房间",
         "left": "{{name}} 离开了房间",
         "resume": {
             "lobby": "你仍在房间 {{code}} 中",

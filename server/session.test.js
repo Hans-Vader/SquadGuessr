@@ -1298,7 +1298,7 @@ test("whoever joins or comes back gets the last CHAT_HISTORY lines with the welc
     assert.deepEqual(last(phone, "welcome").chat, [...history.slice(1), { system: "joined", name: "Ana" }]);
 });
 
-test("coming into and leaving the lobby is a notice in the chat; a reload, a kick or a comeback under the same name are not", () => {
+test("coming into, leaving and being kicked from the lobby is a notice in the chat; a reload or a comeback under the same name are not", () => {
     const { s, host, guest, all, last } = withGuest();
     const tv = {};
     s.watch(tv);
@@ -1316,7 +1316,7 @@ test("coming into and leaving the lobby is a notice in the chat; a reload, a kic
     const laptop = {};
     s.join(laptop, { name: "ida" });
     s.handle(host, { type: "kick", playerId: last(laptop, "welcome").playerId });
-    assert.deepEqual(all(host, "chat").map(m => `${m.system} ${m.name}`), ["joined Max", "joined Ida", "left Max"]);
+    assert.deepEqual(all(host, "chat").map(m => `${m.system} ${m.name}`), ["joined Max", "joined Ida", "left Max", "kicked ida"]);
     assert.equal(all(tv, "chat").length, 0);
 });
 
