@@ -658,6 +658,11 @@ body.mp-chat #mpChat {
         .me strong {
             color: variables.$newColorLight;
         }
+        // someone came into or left the lobby: in the background of the talk
+        .notice {
+            color: #888;
+            font-style: italic;
+        }
     }
     form {
         // at the bottom even while the log is empty (and hidden) in the full-height desktop panel

@@ -1007,18 +1007,26 @@ export default class Multiplayer {
 
     onChat(line) {
         this.addChatLine(line);
-        if (line.id !== this.me && !this.chatOpen) this.unread++;
+        // someone coming or going is no reason to open the chat
+        if (!line.system && line.id !== this.me && !this.chatOpen) this.unread++;
         this.renderChat();
     }
 
-    addChatLine({ id, name, text }) {
+    addChatLine({ id, name, text, system }) {
         const log = document.getElementById("mpChatLog");
         // as text, never HTML: names and lines come from other players. Each with its own direction (dir isolates it):
         // a right-to-left name must not pull the line's start in front of it and so fake who wrote what
-        $("<li>")
-            .toggleClass("me", id === this.me)
-            .append($("<strong dir=\"auto\">").text(name), $("<span dir=\"auto\">").text(text))
-            .appendTo(log);
+        if (system) {
+            // someone came into or left the lobby: one quiet sentence, the name isolated inside it (FSI … PDI).
+            // Unescaped, .text() keeps it from being HTML
+            const notice = i18next.t(`mp.${system}`, { ns: "common", name: `\u2068${name}\u2069`, interpolation: { escapeValue: false } });
+            $("<li class=\"notice\">").text(notice).appendTo(log);
+        } else {
+            $("<li>")
+                .toggleClass("me", id === this.me)
+                .append($("<strong dir=\"auto\">").text(name), $("<span dir=\"auto\">").text(text))
+                .appendTo(log);
+        }
         $(log).children().slice(0, -CHAT_HISTORY).remove();
         // follows new lines only from the bottom: whoever scrolled up to read stays there, unless they write themselves
         if (this.chatPinned || id === this.me) log.scrollTop = log.scrollHeight;

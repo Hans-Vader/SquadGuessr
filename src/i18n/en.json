@@ -98,6 +98,7 @@
             "promote": "Make {{name}} the host? You will be a regular player then."
         },
         "confirmLeave": "Leave the lobby? You will need the code to come back.",
+        "joined": "{{name}} joined the lobby",
         "left": "{{name}} left the lobby",
         "resume": {
             "lobby": "You are still in lobby {{code}}",
