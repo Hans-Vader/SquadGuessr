@@ -992,7 +992,7 @@ export default class Multiplayer {
         // as text, never HTML: names and lines come from other players. Each with its own direction (dir isolates it):
         // a right-to-left name must not pull the line's start in front of it and so fake who wrote what
         if (system) {
-            // someone came into or left the lobby: one quiet sentence, the name isolated inside it (FSI … PDI).
+            // someone came into, left or was kicked from the lobby: one quiet sentence, the name isolated inside it (FSI … PDI).
             // Unescaped, .text() keeps it from being HTML
             const notice = i18next.t(`mp.${system}`, { ns: "common", name: `\u2068${name}\u2069`, interpolation: { escapeValue: false } });
             $("<li class=\"notice\">").text(notice).appendTo(log);

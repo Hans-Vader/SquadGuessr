@@ -317,7 +317,7 @@ export class Session {
 
     /**
      * Into the history and out to every player who may read the chat: a player's line, or a notice ({ system, name })
-     * that someone came into or left the lobby, which keeps its place between the lines
+     * that someone came into, left or was kicked from the lobby, which keeps its place between the lines
      */
     addLine(line) {
         // a new array: a welcome already handed out keeps the history it was sent with
@@ -376,11 +376,11 @@ export class Session {
     leave(player) {
         if (this.phase === "lobby") {
             this.players.delete(player.id);
-            // a kick is the host's own doing (kick() records the token before it gets here): no notice for that
-            if (!this.kicked.some(k => k.token === player.token)) {
-                this.broadcast({ type: "left", name: player.name });
-                this.addLine({ system: "left", name: player.name });
-            }
+            // a kick is the host's own doing (kick() records the token before it gets here): no toast for that,
+            // only the chat says what happened
+            const kicked = this.kicked.some(k => k.token === player.token);
+            if (!kicked) this.broadcast({ type: "left", name: player.name });
+            this.addLine({ system: kicked ? "kicked" : "left", name: player.name });
         } else {
             player.conn = null;
             player.connected = false;
