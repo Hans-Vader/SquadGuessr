@@ -84,6 +84,8 @@ export class Session {
         this.freshWait();
         if (same?.id === this.hostId) this.hostId = player.id;
         this.welcome(player);
+        // a player back under the same name never left the room for the others: they only saw them offline
+        if (!same) this.addLine({ system: "joined", name: player.name });
         this.broadcastState();
         // joined during the countdown: round 1's images to load
         this.sendPhase(conn);
@@ -300,7 +302,7 @@ export class Session {
      * A chat line for every player, watchers never see it (the big screen is often on a projector or a stream).
      * During a round only between players whose answer is in: a line could give the answer away. Whoever still
      * guesses is ignored silently (a line sent just as the round starts is normal) and gets the round's lines once
-     * they answer or the round ends. Too fast is an error, so the client keeps the text for another try.
+     * they answer or the round ends. Too fast is an error: a real client waits the whole CHAT_GAP_MS and never gets it.
      */
     chat(player, text) {
         if (!this.mayChat(player)) return;
@@ -310,7 +312,14 @@ export class Session {
         const clean = cleanText(text, CHAT_MAX);
         if (!clean) return;
         player.chatAt = this.now();
-        const line = { id: player.id, name: player.name, text: clean };
+        this.addLine({ id: player.id, name: player.name, text: clean });
+    }
+
+    /**
+     * Into the history and out to every player who may read the chat: a player's line, or a notice ({ system, name })
+     * that someone came into or left the lobby, which keeps its place between the lines
+     */
+    addLine(line) {
         // a new array: a welcome already handed out keeps the history it was sent with
         this.messages = [...this.messages, line].slice(-CHAT_HISTORY);
         if (this.phase === "round") this.roundLines++;
@@ -368,7 +377,10 @@ export class Session {
         if (this.phase === "lobby") {
             this.players.delete(player.id);
             // a kick is the host's own doing (kick() records the token before it gets here): no notice for that
-            if (!this.kicked.some(k => k.token === player.token)) this.broadcast({ type: "left", name: player.name });
+            if (!this.kicked.some(k => k.token === player.token)) {
+                this.broadcast({ type: "left", name: player.name });
+                this.addLine({ system: "left", name: player.name });
+            }
         } else {
             player.conn = null;
             player.connected = false;

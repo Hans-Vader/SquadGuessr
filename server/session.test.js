@@ -17,6 +17,8 @@ function setup(settings = CLASSIC) {
     const s = new Session("ABCD", { send: (conn, msg) => sent.push({ conn, msg }), now: () => t });
     const all = (conn, type) => sent.filter(x => x.conn === conn && x.msg.type === type).map(x => x.msg);
     const last = (conn, type) => all(conn, type).at(-1);
+    // what the players wrote, without the notices of who came and went
+    const said = (conn) => all(conn, "chat").filter(m => !m.system).map(m => m.text);
     const host = { id: "host" };
     s.create(host, { name: "Hans", settings });
     const advance = (ms) => { t += ms; };
@@ -27,7 +29,7 @@ function setup(settings = CLASSIC) {
         advance(COUNTDOWN_FORCED_MS);
         s.tick();
     };
-    return { s, sent, host, all, last, advance, begin };
+    return { s, sent, host, all, last, said, advance, begin };
 }
 
 function withGuest(settings) {
@@ -1057,12 +1059,12 @@ test("a chat line reaches every player, cleaned and capped, but never a watcher"
 });
 
 test("empty chat lines and lines from whoever still guesses are ignored silently", () => {
-    const { s, host, guest, all, last } = started();
+    const { s, host, guest, said, last } = started();
     s.handle(guest, { type: "chat", text: "psst, it is Narva" });
     s.handle(guest, { type: "chat", text: 42 });
     s.handle(host, { type: "endRound" });
     s.handle(guest, { type: "chat", text: "  \u200b " });
-    assert.equal(all(host, "chat").length, 0);
+    assert.deepEqual(said(host), []);
     assert.equal(last(guest, "error"), undefined);
     // nothing ignored used up the guest's turn
     s.handle(guest, { type: "chat", text: "close one" });
@@ -1078,7 +1080,7 @@ function threeInRound() {
     ctx.advance(CHAT_GAP_MS);
     ctx.begin();
     ctx.answer = (conn) => ctx.s.handle(conn, { type: "answer", index: ctx.s.round, lat: -100, lng: 200 });
-    ctx.texts = (conn) => ctx.all(conn, "chat").map(m => m.text);
+    ctx.texts = ctx.said;
     return ctx;
 }
 
@@ -1120,7 +1122,7 @@ test("back during a round, the history holds the round's lines only for whoever 
         s.disconnect(conn);
         const phone = {};
         s.join(phone, { token });
-        return last(phone, "welcome").chat.map(m => m.text);
+        return last(phone, "welcome").chat.filter(m => !m.system).map(m => m.text);
     };
     answer(host);
     answer(ida);
@@ -1130,7 +1132,7 @@ test("back during a round, the history holds the round's lines only for whoever 
 
 test("the server allows a player a chat line every half CHAT_GAP_MS and tells whoever writes faster", () => {
     // the client itself waits the whole CHAT_GAP_MS: the other half is room for the network delaying one line more than the next
-    const { s, host, guest, all, last, advance } = withGuest();
+    const { s, host, guest, said, last, advance } = withGuest();
     s.handle(guest, { type: "chat", text: "a" });
     advance(CHAT_GAP_MS / 2 - 1);
     s.handle(guest, { type: "chat", text: "b" });
@@ -1139,7 +1141,7 @@ test("the server allows a player a chat line every half CHAT_GAP_MS and tells wh
     s.handle(host, { type: "chat", text: "c" });
     advance(1);
     s.handle(guest, { type: "chat", text: "d" });
-    assert.deepEqual(all(host, "chat").map(m => m.text), ["a", "c", "d"]);
+    assert.deepEqual(said(host), ["a", "c", "d"]);
 });
 
 test("whoever joins or comes back gets the last CHAT_HISTORY lines with the welcome", () => {
@@ -1158,7 +1160,30 @@ test("whoever joins or comes back gets the last CHAT_HISTORY lines with the welc
     s.disconnect(guest);
     const phone = {};
     s.join(phone, { token });
-    assert.deepEqual(last(phone, "welcome").chat, history);
+    // Ana's arrival came after her welcome: it is the history's newest line now
+    assert.deepEqual(last(phone, "welcome").chat, [...history.slice(1), { system: "joined", name: "Ana" }]);
+});
+
+test("coming into and leaving the lobby is a notice in the chat; a reload, a kick or a comeback under the same name are not", () => {
+    const { s, host, guest, all, last } = withGuest();
+    const tv = {};
+    s.watch(tv);
+    const ida = {};
+    s.join(ida, { name: "Ida" });
+    assert.deepEqual(last(host, "chat"), { type: "chat", system: "joined", name: "Ida" });
+    s.handle(guest, { type: "leave" });
+    assert.deepEqual(last(ida, "chat"), { type: "chat", system: "left", name: "Max" });
+    // a reload, and a comeback under the same name from another device
+    const { token } = last(ida, "welcome");
+    s.disconnect(ida);
+    const phone = {};
+    s.join(phone, { token });
+    s.disconnect(phone);
+    const laptop = {};
+    s.join(laptop, { name: "ida" });
+    s.handle(host, { type: "kick", playerId: last(laptop, "welcome").playerId });
+    assert.deepEqual(all(host, "chat").map(m => `${m.system} ${m.name}`), ["joined Max", "joined Ida", "left Max"]);
+    assert.equal(all(tv, "chat").length, 0);
 });
 
 test("a flood of chat lines is turned away before its text is even looked at", () => {
