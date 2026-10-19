@@ -27,6 +27,18 @@ footer {
     #timerWrapper {
         font-size: 3em;
         padding-right: 1em;
+        font-weight: bold;
+        transition: color 0.3s;
+
+        // colors of the toast's warning / error
+        &.warn {
+            color: #F29208;
+        }
+
+        &.critical {
+            color: #E63435;
+            animation: timer-pulse 1s ease-in-out infinite;
+        }
     }
 
     #footerLogos {
@@ -264,6 +276,25 @@ $toastDistanceFromBottom: 40px;
 
     to {
         width: 0%;
+    }
+}
+
+// the round's last seconds: the timer and the map's edge (game.scss) pulse once per second
+@keyframes timer-pulse {
+    50% {
+        transform: scale(1.2);
+    }
+}
+
+@keyframes timer-glow {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #timerWrapper.critical {
+        animation: none;
     }
 }
 
