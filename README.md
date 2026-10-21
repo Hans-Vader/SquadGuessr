@@ -12,7 +12,7 @@
 
 # Submit a new guess
 
-1. Turn on Squad's screenshot mode first, so the compass is not in your screenshot:** click the eye icon at the bottom of the screen in the main menu.
+1. Turn on Squad's **screenshot mode** first, so the compass is not in your screenshot: click the eye icon at the bottom of the screen in the main menu.
 
    For a free camera, start Squad's Firing Range (training mode), open the console and load the map you want with `AdminChangeLayer <layer>`, e.g. `AdminChangeLayer Narva_AAS_v1`. You are admin there, so **Shift+P** switches to the admin camera and you can fly anywhere on the map.
 
