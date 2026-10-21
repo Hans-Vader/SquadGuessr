@@ -86,7 +86,8 @@
         "chat": {
             "title": "Chat",
             "close": "Close chat",
-            "placeholder": "Message…"
+            "placeholder": "Message…",
+            "send": "Send"
         },
         "onResults": "Still looking at the results",
         "makeHost": "Make {{name}} host",

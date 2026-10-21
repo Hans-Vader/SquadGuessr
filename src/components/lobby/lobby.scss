@@ -660,9 +660,12 @@ body.mp-chat #mpChat {
         // at the bottom even while the log is empty (and hidden) in the full-height desktop panel
         margin-top: auto;
         padding: 0.5rem;
+        display: flex;
+        gap: 0.5rem;
     }
     #mpChatInput {
-        width: 100%;
+        flex: 1;
+        min-width: 0;
         padding: 0.6rem 0.8rem;
         // 16 px or more: iOS zooms the whole page into a smaller input on focus
         font-size: max(16px, 1rem);
@@ -671,6 +674,24 @@ body.mp-chat #mpChat {
         background: #272727;
         border: 2px solid #333;
         border-radius: 10px;
+    }
+    // the send arrow: the global button colours, but as high as the input instead of the big global size
+    #BUTTON_MP_CHAT_SEND {
+        flex: none;
+        width: 2.75rem;
+        padding: 0;
+        border-radius: 10px;
+        svg {
+            display: block;
+            width: 1.3rem;
+            height: 1.3rem;
+            margin: auto;
+            fill: currentcolor;
+        }
+    }
+    // nothing typed yet: the arrow stays in the background (a click would send nothing anyway)
+    #mpChatInput:placeholder-shown + #BUTTON_MP_CHAT_SEND {
+        opacity: 0.4;
     }
 }
 
