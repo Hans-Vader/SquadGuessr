@@ -113,6 +113,8 @@ export default class Multiplayer {
         $("#mpChat").on("keydown", (e) => { if (e.key === "Escape") this.toggleChat(false); });
         // the footer blocks the context menu: in the chat it is needed to paste, and on phones to select text
         $("#mpChat").on("contextmenu", (e) => e.stopPropagation());
+        // a tap on the send arrow would take the focus from the input: the phone's keyboard would close after every line
+        $("#BUTTON_MP_CHAT_SEND").on("mousedown", (e) => e.preventDefault());
         const log = document.getElementById("mpChatLog");
         log.addEventListener("scroll", () => { this.chatPinned = log.scrollHeight - log.scrollTop - log.clientHeight < 40; });
         // a new size (a turned tablet, the chat docking or not) leaves the scroll position behind: whoever was at the

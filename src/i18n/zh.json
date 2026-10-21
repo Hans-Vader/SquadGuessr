@@ -90,7 +90,8 @@
         "chat": {
             "title": "聊天",
             "close": "关闭聊天",
-            "placeholder": "输入消息…"
+            "placeholder": "输入消息…",
+            "send": "发送"
         },
         "onResults": "仍在查看结果",
         "makeHost": "将 {{name}} 设为房主",
