@@ -105,8 +105,8 @@
         "nowHost": "你现在是房主",
         "noLongerHost": "你不再是房主",
         "nowLeader": "你现在是{{team}}的队长",
-        "shuffled": "房主打乱了队伍：你现在在{{team}}",
-        "shuffledLeader": "房主打乱了队伍：你现在是{{team}}的队长",
+        "nowIn": "你现在在{{team}}",
+        "shuffled": "房主打乱了队伍",
         "confirm": {
             "kick": "将 {{name}} 移出房间？",
             "promote": "将 {{name}} 设为房主？之后你将成为普通玩家。",

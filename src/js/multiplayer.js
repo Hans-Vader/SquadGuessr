@@ -559,9 +559,9 @@ export default class Multiplayer {
     }
 
     /**
-     * Tells this player their team after the host shuffled, and in Leader when they came to lead a team without a
-     * shuffle (handed over, the leader left, a switch into an empty team); never on the first state, never on the big
-     * screen, and never twice for one change
+     * Tells this player their team after the host shuffled, and in Leader when they came to lead a team (handed over,
+     * the leader left, a switch into an empty team, a shuffle); never on the first state, never on the big screen.
+     * One toast per change, the page has room for one: the team or the lead as its headline, a shuffle as the line below
      */
     onTeamChange(before, now) {
         const shuffled = this.shuffled;
@@ -571,7 +571,7 @@ export default class Multiplayer {
         if (!was || !is) return;
         const team = teamName(is.team);
         const leads = now.settings.team === "leader" && is.leader;
-        if (shuffled) return this.toast("info", leads ? "mp.shuffledLeader" : "mp.shuffled", { team });
+        if (shuffled) return this.toast(leads ? "success" : "info", leads ? "mp.nowLeader" : "mp.nowIn", { team }, "mp.shuffled");
         const led = before.settings.team === "leader" && was.leader && was.team === is.team;
         if (leads && !led) this.toast("success", "mp.nowLeader", { team });
     }
@@ -1295,8 +1295,8 @@ export default class Multiplayer {
             .catch(err => console.error("Copy failed", err));
     }
 
-    toast(type, key, options = {}) {
+    toast(type, key, options = {}, subKey = null) {
         // openToast sets innerHTML: values (a player name is user input) go through i18next, which escapes them
-        this.app.openToast(type, i18next.t(key, { ns: "common", ...options }), "");
+        this.app.openToast(type, i18next.t(key, { ns: "common", ...options }), subKey ? i18next.t(subKey, { ns: "common" }) : "");
     }
 }
