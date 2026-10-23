@@ -47,6 +47,21 @@ test("validSettings: rush takes 5–30 s in 5 s steps; the next round comes from
     assert.equal(settings({ next: undefined }), true);
 });
 
+test("validSettings: team play takes Average with 2–10 teams and minus points on or off, in classic only", () => {
+    const settings = (over) => validSettings({ mode: "classic", timer: 0, rounds: 5, ...over });
+    assert.equal(settings({ team: "off" }), true);
+    assert.equal(settings({ team: "average", teams: 2, penalty: false }), true);
+    assert.equal(settings({ team: "average", teams: 10, penalty: true }), true);
+    [1, 11, 2.5, "2", null].forEach(teams => assert.equal(settings({ team: "average", teams, penalty: false }), false, `teams ${teams}`));
+    ["yes", 1, null].forEach(penalty => assert.equal(settings({ team: "average", teams: 2, penalty }), false, `penalty ${penalty}`));
+    assert.equal(settings({ team: "solo" }), false);
+    // a team guesses points on the map: never in Find the Map
+    assert.equal(validSettings({ mode: "mapFinder", timer: 0, rounds: 5, team: "average", teams: 2, penalty: false }), false);
+    assert.equal(validSettings({ mode: "mapFinder", timer: 0, rounds: 5, team: "off" }), true);
+    // an older cached client knows nothing of teams
+    assert.equal(settings({}), true);
+});
+
 test("validGuesses checks count and every field", () => {
     assert.equal(validGuesses([guess(), guess(), guess()], 3), true);
     assert.equal(validGuesses([guess({ submitter: "Dan" }), guess({ map: "narva" }), guess({ submitter: null })], 3), true);
