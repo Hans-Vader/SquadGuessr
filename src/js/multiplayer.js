@@ -603,6 +603,16 @@ export default class Multiplayer {
         return this.state?.phase !== "decide" && !this.isLeading();
     }
 
+    /**
+     * Whether this player still has a choice to make before the time runs out, which the timer warns about (squadGuessr):
+     * the guess in the round, except for a leader, who guesses nothing; while the leaders decide, the leader's pick. A
+     * selected but unsent pick counts when the time runs out, like a placed marker
+     */
+    stillToChoose() {
+        if (this.state?.phase === "decide") return this.teams.picking && !this.teams.selected;
+        return !this.answered && !this.isLeading() && !this.app.minimap.guessMarker;
+    }
+
     renderState() {
         const s = this.state;
         this.code = s.code;
