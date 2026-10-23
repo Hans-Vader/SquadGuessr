@@ -313,13 +313,13 @@ export class Session {
 
     /**
      * Somebody to play against: at least one other player is connected (a watcher does not count), and in team play
-     * at least two teams have somebody there; in Leader every one of them two, since the leader guesses nothing
+     * at least two teams have somebody there; in Leader every one of them three, so the leader has guesses to choose from
      */
     canStart() {
         const others = Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
         if (!others || !this.settings.team) return others;
         const playing = this.teamSizes(p => p.connected).filter(n => n > 0);
-        const least = this.settings.team === "leader" ? 2 : 1;
+        const least = this.settings.team === "leader" ? 3 : 1;
         return playing.length >= 2 && playing.every(n => n >= least);
     }
 
