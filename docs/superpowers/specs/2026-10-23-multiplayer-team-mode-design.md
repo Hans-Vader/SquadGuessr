@@ -12,7 +12,7 @@ Im Multiplayer spielt heute jeder gegen jeden. Clans, Communities und Freundesgr
 Für Classic gibt es einen Team-Modus mit drei Varianten. Der Host wählt die Variante in der Lobby:
 
 1. **Leader:** Jedes Team hat einen Leader. Er setzt selbst keinen Punkt. Die Mitglieder tippen, und in einer eigenen Entscheidungsphase wählt der Leader einen ihrer Guesses als Team-Antwort.
-2. **Durchschnitt:** Alle tippen. Die Rundenpunkte des Teams sind der Durchschnitt der Einzelpunkte. Optional gibt es Minuspunkte für Guesses außerhalb der Punktezone.
+2. **Summe:** Alle tippen. Die Rundenpunkte des Teams sind die Summe der Einzelpunkte, deshalb müssen alle Teams gleich groß sein. Optional gibt es Minuspunkte für Guesses außerhalb der Punktezone.
 3. **Mittelpunkt:** Alle tippen. Der Team-Punkt ist der Mittelpunkt aller Guesses des Teams und wird wie ein normaler Guess gewertet.
 
 ### Rahmen
@@ -29,7 +29,7 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 
 - Der Host schaltet in der Lobby den Team-Modus ein und wählt die Variante sowie 2 bis 10 Teams. Die Spieler wählen ihr Team selbst, und der Host kann mischen.
 - Ein Spieler sieht die Marker seines Teams erst, nachdem er selbst abgegeben hat. Der Leader sieht sie sofort. Andere Teams und Zuschauer sehen sie erst im Reveal. Punkte oder Distanzen bekommt vor dem Reveal niemand zu sehen.
-- **Durchschnitt:** Die Rundenpunkte des Teams sind der gerundete Durchschnitt der Einzelpunkte. Mit Minuspunkten fällt der Wert außerhalb der Zone gestaffelt bis −50.
+- **Summe:** Die Rundenpunkte des Teams sind die Summe der Einzelpunkte. START geht nur mit gleich großen Teams. Mit Minuspunkten fällt der Einzelwert außerhalb der Zone gestaffelt bis −50.
 - **Mittelpunkt:** Gewertet wird der Mittelpunkt der Guesses des Teams.
 - **Leader:** Der Leader tippt nicht und sieht die Marker seines Teams live. In einer Entscheidungsphase, deren Dauer der Host einstellt, wählt er einen der Guesses.
 - Reveal und Endstand zeigen eine Rangliste der Teams. Auf der Karte erscheinen die Marker in Teamfarben, dazu die Team-Punkte.
@@ -50,13 +50,13 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 | Frage | Entscheidung |
 |---|---|
 | Modi | Nur Classic |
-| Varianten | `leader`, `average`, `centroid` |
+| Varianten | `leader`, `sum`, `centroid` |
 | Teamanzahl | 2 bis 10, legt der Host fest |
 | Spielerlimit | `MAX_PLAYERS` steigt von 12 auf 30, für alle Modi. Ein Limit pro Modus würde beim Zurückschalten eine übervolle Lobby erzeugen |
 | Teambildung | Spieler wählen selbst und landen beim Beitritt im kleinsten Team. Der Host kann mischen. Ungleich große Teams sind erlaubt |
 | Sichtbarkeit | Eigene Team-Marker nach der eigenen Abgabe. Der Leader sieht sie sofort, in `decide` das ganze Team. Andere sehen sie erst im Reveal |
-| Summen-Variante | Durchschnitt statt Summe, weil das bei ungleich großen Teams fair ist |
-| Minuspunkte | Schalter, nur bei `average`. Linear von 0 am Zonenrand bis −50 bei 3× Zonenabstand. Wer nichts abgibt, bekommt −50 |
+| Summen-Variante | Summe der Einzelpunkte. Fair wird sie dadurch, dass START nur mit gleich großen Teams möglich ist und im Countdown niemand Neues dazukommt. (Zuerst als Durchschnitt umgesetzt, dann auf Wunsch geändert) |
+| Minuspunkte | Schalter, nur bei `sum`. Linear von 0 am Zonenrand bis −50 bei 3× Zonenabstand. Wer nichts abgibt, bekommt −50 |
 | Triangulieren | Arithmetischer Mittelpunkt |
 | Leader-Bestimmung | Fest: Wer zuerst im Team ist, wird Leader. Übergabe in der Lobby |
 | Leader-Entscheidung | Eigene Phase `decide`, Dauer vom Host (10 bis 60 s) |
@@ -67,7 +67,7 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 
 | Feld | Werte | Default |
 |---|---|---|
-| `team` | `"off"`, `"leader"`, `"average"`, `"centroid"` | `"off"` |
+| `team` | `"off"`, `"leader"`, `"sum"`, `"centroid"` | `"off"` |
 | `teams` | ganze Zahl von 2 bis 10 | `2` |
 | `penalty` | `true` / `false` | `false` |
 | `decide` | Sekunden: 10, 15, 20, 30, 45, 60 | `20` |
@@ -118,6 +118,8 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 - **Beitritt** (`create`, `join`):
   - Der Spieler kommt ins kleinste Team, bei Gleichstand ins Team mit dem kleinsten Index.
   - Während des Start-Countdowns (`phase === "loading" && round === 0`) ist es das kleinste Team, das schon Spieler hat. So entsteht nach START kein neues Ein-Mann-Team.
+  - Bei `sum` tritt im Countdown niemand Neues bei (`GAME_RUNNING`, mit dem Angebot zum Zuschauen), weil ein Team sonst wachsen würde. Wer mit Token zurückkommt, ist davon nicht betroffen.
+  - Wer ohne Token unter seinem Namen zurückkommt und seinen alten Platz übernimmt, kommt in sein altes Team zurück. Das gilt für alle Modi.
   - `teamSince = now`.
 - **`team`:**
   - Gültig ist eine ganze Zahl von 0 bis `teams − 1`. Ist es das eigene Team, passiert nichts.
@@ -149,6 +151,7 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 
 - **`canStart()`:** Im Team-Modus gilt zusätzlich:
   - Mindestens 2 Teams haben verbundene Spieler.
+  - Bei `sum` haben alle Teams mit verbundenen Spielern gleich viele davon. Geht die Spielerzahl nicht auf, ändert der Host die Teamanzahl, oder jemand schaut zu.
   - Bei `leader` hat jedes Team mit verbundenen Spielern mindestens 3 davon, also den Leader und 2 Mitglieder. Mit nur einem Mitglied hätte der Leader keine Wahl. Schrumpft ein Team im Spiel, läuft es weiter.
 - `resetScores()` setzt auch `teamScores` zurück. Teams und Leader bleiben über `cancelStart` und `toLobby` hinweg bestehen.
 
@@ -156,12 +159,12 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 
 - **`answer()`:**
   - Bei `leader` beantwortet der Server die Antwort eines Leaders mit `INVALID`.
-  - Bei `average` mit `penalty`: `points += penaltyPoints(distance, size)`.
+  - Bei `sum` mit `penalty`: `points += penaltyPoints(distance, size)`.
   - Im Team-Modus folgt danach `sendTeamGuesses(player.team)`.
 - **`checkRoundEnd()`** (Phase `round`): Gewartet wird auf anwesende Spieler ohne Antwort. Bei `leader` zählen die Leader nicht dazu.
 - **`endRound()`:**
   - Fehlende Antworten werden aufgefüllt mit `{ lat: null, lng: null, mapName: null, distance: null, points }`.
-    - `points` ist −50 bei `average` mit `penalty`, wenn der Spieler anwesend ist. Sonst ist es 0.
+    - `points` ist −50 bei `sum` mit `penalty`, wenn der Spieler anwesend ist. Wer endgültig weg ist, bekommt 0.
   - Danach geht es bei `leader` weiter mit `startDecide()`, sonst mit `reveal()`.
   - `reveal()` übernimmt den bisherigen zweiten Teil von `endRound()`: Punkte aufaddieren, Phase setzen, `nextAt` setzen, `state` und `reveal` senden.
 
@@ -206,7 +209,7 @@ Für jedes Team `t` mit Spielern:
 
 | Variante | Team-Punkt (`lat`, `lng`) | Rundenpunkte |
 |---|---|---|
-| `average` | `null` | `Math.round(Summe / Anzahl)` über alle Mitglieder, die einen Guess haben oder beim Rundenende anwesend sind (`isPresent`). Ohne solche Mitglieder 0. Die Rechnung läuft im selben Aufruf wie `endRound()`, also zum selben Zeitpunkt |
+| `sum` | `null` | Summe der Einzelpunkte aller Mitglieder, einschließlich der aufgefüllten Werte aus `endRound()` |
 | `centroid` | `centroid()` der Guesses mit `lat !== null` | `pointsForDistance(distance(Team-Punkt, Lösung), size).points`. Ohne Guess 0 und `null` |
 | `leader` | Guess von `picks[t]` | Punkte dieses Guesses. Ohne Pick 0 und `null` |
 
@@ -256,9 +259,9 @@ export function centroid(points) { … }
 ### Lobby (`lobby.html`, `lobby.scss`, `multiplayer.js`)
 
 - **Neue Selects in `#mpSettings`:**
-  - `#mpTeam`: Aus, Leader, Durchschnitt, Mittelpunkt.
+  - `#mpTeam`: Aus, Summe, Mittelpunkt, Leader.
   - `#mpTeamCount`: 2 bis 10.
-  - `#mpPenalty`: Aus oder An, sichtbar nur bei Durchschnitt.
+  - `#mpPenalty`: Aus oder An, sichtbar nur bei Summe.
   - `#mpDecide`: 10 bis 60 s, sichtbar nur bei Leader.
 - Steht `#mpMode` auf „Find the Map“, ist `#mpTeam` gesperrt. Ein Wechsel dorthin schickt `team: "off"` mit.
 - `readSettings`, `renderState` und `describeSettings` berücksichtigen die neuen Felder. Beispiel für die Zusammenfassung: „Teams: Leader · 4 Teams · Entscheidung 20 s“.
@@ -269,7 +272,7 @@ export function centroid(points) { … }
   - Im Leader-Modus sieht der Leader bei seinen Teammitgliedern 🎖️. Das schickt nach einer Rückfrage `lead`, analog zu 🔑 beim Host.
   - Der Host behält 🔑 und ✕.
 - **`#BUTTON_MP_SHUFFLE`:** Nur für den Host und nur im Team-Modus der Lobby sichtbar.
-- **START-Tooltip:** Im Team-Modus erscheint `mp.needTeams`, wenn `!canStart` gilt und schon jemand anderes da ist.
+- **START-Tooltip:** Im Team-Modus erscheint `mp.needTeams.<Variante>` mit der Regel der Variante, wenn `!canStart` gilt und schon jemand anderes da ist.
 - **`#mpChips` im Spiel:** ein Farbpunkt pro Spieler.
 - Bei 30 Spielern scrollt die Lobby-Liste (`max-height` mit `overflow-y: auto`), wie es die Reveal-Rangliste bereits tut.
 
@@ -303,7 +306,7 @@ export function centroid(points) { … }
   - beschriftet mit „Team Blau +60“,
   - mit Distanzlinie zur Lösung.
 - **Distanzlinien:**
-  - Bei `average` bekommt jeder Spieler eine Linie, wie heute.
+  - Bei `sum` bekommt jeder Spieler eine Linie, wie heute.
   - Bei `centroid` und `leader` bekommt nur der Team-Marker eine Linie.
 - `focusReveal` bezieht die Team-Marker mit ein.
 - **`#mpRanking`:**
@@ -368,10 +371,12 @@ export function centroid(points) { … }
     - in `decide` an das ganze Team,
     - nie an andere Teams oder Zuschauer,
     - ohne `points` und ohne `distance`.
-  - **`average`:**
+  - **`sum`:**
     - mit und ohne `penalty`,
     - keine Abgabe ergibt −50 bzw. 0,
-    - abwesende Spieler zählen nicht mit.
+    - wer endgültig weg ist, steuert 0 bei und nie −50,
+    - START nur mit gleich großen Teams,
+    - kein Neuzugang im Countdown.
   - **`centroid`:** Team-Punkt und Rundenpunkte; ein Team ohne Guess bekommt 0.
   - **`leader`:**
     - ein Leader kann nicht `answer` senden,
@@ -398,6 +403,6 @@ Für den Client gibt es kein Test-Setup. Geprüft wird mit dem Dev-Build: Dev-Se
 
 Die Varianten bauen auf einer gemeinsamen Basis auf und können getrennt umgesetzt und gemergt werden:
 
-1. **Basis und Durchschnitt:** Einstellungen, Limit 30, Teamzuordnung und Leader-Führung im Server, Team-Lobby, `teamGuesses`, Team-Wertung, Reveal, Endstand und Minuspunkte.
+1. **Basis und Summe (zuerst als Durchschnitt umgesetzt):** Einstellungen, Limit 30, Teamzuordnung und Leader-Führung im Server, Team-Lobby, `teamGuesses`, Team-Wertung, Reveal, Endstand und Minuspunkte.
 2. **Mittelpunkt:** `centroid()`, Team-Marker im Reveal.
 3. **Leader:** Phase `decide`, `pick`, `lead`, Auswahl-UI.

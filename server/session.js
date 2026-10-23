@@ -93,12 +93,16 @@ export class Session {
         if (this.refuseKicked(conn, k => k.name === clean.toLowerCase())) return false;
         const same = this.findPlayer(p => p.name.toLowerCase() === clean.toLowerCase());
         if (same?.connected) return this.error(conn, "NAME_TAKEN");
+        // Sum: from START on nobody new joins, a team would grow; who takes their own place back (below) keeps it even
+        if (this.phase !== "lobby" && this.settings.team === "sum" && !same) return this.error(conn, "GAME_RUNNING");
         // someone who dropped out of the lobby may come back without their token (other device, other tab): same name, their place
         if (same) this.players.delete(same.id);
         if (this.players.size >= MAX_PLAYERS) return this.error(conn, "SESSION_FULL");
         const player = this.addPlayer(conn, clean);
         this.freshWait();
         if (same?.id === this.hostId) this.hostId = player.id;
+        // their place includes their team
+        if (same) Object.assign(player, { team: same.team, teamSince: same.teamSince });
         this.fixLeaders();
         this.welcome(player);
         // a player back under the same name never left the room for the others: they only saw them offline
@@ -346,12 +350,14 @@ export class Session {
 
     /**
      * Somebody to play against: at least one other player is connected (a watcher does not count), and in team play
-     * at least two teams have somebody there; in Leader every one of them three, so the leader has guesses to choose from
+     * at least two teams have somebody there: in Sum all of the same size, so the sums compare; in Leader every one of
+     * them three, so the leader has guesses to choose from
      */
     canStart() {
         const others = Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
         if (!others || !this.settings.team) return others;
         const playing = this.teamSizes(p => p.connected).filter(n => n > 0);
+        if (this.settings.team === "sum") return playing.length >= 2 && playing.every(n => n === playing[0]);
         const least = this.settings.team === "leader" ? 3 : 1;
         return playing.length >= 2 && playing.every(n => n >= least);
     }
@@ -459,8 +465,8 @@ export class Session {
             ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
             : { lat: null, lng: null, mapName: msg.mapName };
         const scored = scoreAnswer(this.settings.mode, this.guesses[this.round], answer);
-        // Average with minus points: beyond the last scoring step a guess costs the team points
-        if (this.settings.team === "average" && this.settings.penalty) scored.points += penaltyPoints(scored.distance, size);
+        // Sum with minus points: beyond the last scoring step a guess costs the team points
+        if (this.settings.team === "sum" && this.settings.penalty) scored.points += penaltyPoints(scored.distance, size);
         player.answers[this.round] = { ...answer, ...scored };
         this.catchUp(player);
         this.broadcastState();
@@ -506,8 +512,8 @@ export class Session {
     endRound() {
         // whoever still guesses (a leader always does) gets the round's chat lines once it is over
         const guessing = [...this.players.values()].filter(p => !p.answers[this.round]);
-        // with minus points giving no answer must never beat a bad guess; whoever is gone for good is not counted (teamResult)
-        const missed = this.settings.team === "average" && this.settings.penalty ? -MAX_PENALTY : 0;
+        // with minus points giving no answer must never beat a bad guess; whoever is gone for good adds nothing
+        const missed = this.settings.team === "sum" && this.settings.penalty ? -MAX_PENALTY : 0;
         this.players.forEach(p => {
             if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: this.isPresent(p) ? missed : 0 };
         });
@@ -568,16 +574,12 @@ export class Session {
     }
 
     /**
-     * A team's result this round: its points, and the point it played (none in Average)
+     * A team's result this round: its points, and the point it played (none in Sum)
      */
     teamResult(team) {
         const members = this.members(team);
-        if (this.settings.team === "average") {
-            // whoever is gone for good does not drag the team down; whoever is there and gave no answer does
-            const counted = members.filter(p => this.guessOf(p) || this.isPresent(p));
-            const sum = counted.reduce((total, p) => total + p.answers[this.round].points, 0);
-            // || 0: an average just below 0 would round to -0
-            const points = counted.length ? Math.round(sum / counted.length) || 0 : 0;
+        if (this.settings.team === "sum") {
+            const points = members.reduce((total, p) => total + p.answers[this.round].points, 0);
             return { id: team, points, lat: null, lng: null, picked: null };
         }
         const picked = this.settings.team === "leader" ? this.picks[team] ?? null : null;
