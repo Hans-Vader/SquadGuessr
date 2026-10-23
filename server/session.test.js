@@ -1253,6 +1253,18 @@ test("team play: the host shuffles everyone into teams that differ by one at mos
     assert.deepEqual(sizes.sort(), [1, 2, 2]);
 });
 
+test("Leader: after a shuffle the first player dealt to a team leads it, not whoever joined first", () => {
+    const { s, host } = teamLobby(LEADER);
+    // one clock tick for the whole shuffle: only the deal may order the players. The host is the first to join, so
+    // led every time with the join order; with the deal they lead about every other time (all 20 by chance: 1 in 10^6)
+    const id = s.findPlayer(p => p.conn === host).id;
+    const led = Array.from({ length: 20 }, () => {
+        s.handle(host, { type: "shuffle" });
+        return s.leaders.includes(id);
+    });
+    assert.ok(led.includes(false));
+});
+
 test("team play: shuffling needs team play", () => {
     const { s, host, last } = withGuest();
     s.handle(host, { type: "shuffle" });
