@@ -1176,3 +1176,101 @@ test("someone new who joins the countdown after everyone left still gets the tim
     s.handle(late, { type: "ready", index: 0 });
     assert.equal(s.phase, "round");
 });
+
+// ===== TEAM PLAY =====
+
+const AVERAGE = { ...CLASSIC, team: "average", teams: 2, penalty: false };
+
+// a team lobby: Hans (host) and Ida in team 0, Max and Eve in team 1, since every newcomer goes to the smallest team
+function teamLobby(settings = AVERAGE) {
+    const ctx = setup(settings);
+    const [max, ida, eve] = ["Max", "Ida", "Eve"].map(name => {
+        const conn = { id: name };
+        ctx.s.join(conn, { name });
+        return conn;
+    });
+    const teamOf = (name) => ctx.s.findPlayer(p => p.name === name).team;
+    return { ...ctx, max, ida, eve, teamOf };
+}
+
+function teamGame(settings) {
+    const ctx = teamLobby(settings);
+    ctx.begin();
+    return ctx;
+}
+
+test("a session holds up to 30 players", () => {
+    assert.equal(MAX_PLAYERS, 30);
+});
+
+test("team play: the settings carry the team fields; without teams they stay what they were", () => {
+    const { host, last } = setup(AVERAGE);
+    assert.deepEqual(last(host, "state").settings, AVERAGE);
+    const plain = setup({ ...CLASSIC, team: "off", teams: 4, penalty: true });
+    assert.deepEqual(plain.last(plain.host, "state").settings, CLASSIC);
+});
+
+test("team play: every newcomer goes to the smallest team, the lowest one on a tie", () => {
+    const { host, last } = teamLobby();
+    assert.deepEqual(last(host, "state").players.map(p => [p.name, p.team]), [["Hans", 0], ["Max", 1], ["Ida", 0], ["Eve", 1]]);
+});
+
+test("team play: once START was pressed, newcomers only fill teams that already play", () => {
+    const { s, host, last } = setup({ ...AVERAGE, teams: 4 });
+    s.join({}, { name: "Max" });
+    s.join({}, { name: "Ida" });
+    s.handle(host, { type: "start", guesses: GUESSES });
+    s.join({}, { name: "Late" });
+    // teams 0–2 have one player each, team 3 none: the late one joins team 0, not a team of their own
+    assert.equal(last(host, "state").players.find(p => p.name === "Late").team, 0);
+});
+
+test("team play: a player switches teams in the lobby; a bad team is refused, a click after START is ignored", () => {
+    const { s, host, max, last, all, teamOf } = teamLobby();
+    s.handle(max, { type: "team", team: 0 });
+    assert.equal(teamOf("Max"), 0);
+    assert.equal(last(host, "state").players.find(p => p.name === "Max").team, 0);
+    for (const team of [2, -1, 0.5, "1"]) {
+        s.handle(max, { type: "team", team });
+        assert.equal(last(max, "error").code, "INVALID", `team ${team}`);
+    }
+    s.handle(host, { type: "start", guesses: GUESSES });
+    const errors = all(max, "error").length;
+    s.handle(max, { type: "team", team: 1 });
+    assert.equal(all(max, "error").length, errors);
+    assert.equal(teamOf("Max"), 0);
+});
+
+test("team play: the host shuffles everyone into teams that differ by one at most", () => {
+    const { s, host, max, last } = teamLobby({ ...AVERAGE, teams: 3 });
+    s.join({}, { name: "Ana" });
+    s.handle(max, { type: "shuffle" });
+    assert.equal(last(max, "error").code, "NOT_HOST");
+    s.handle(host, { type: "shuffle" });
+    const sizes = [0, 1, 2].map(team => last(host, "state").players.filter(p => p.team === team).length);
+    assert.deepEqual(sizes.sort(), [1, 2, 2]);
+});
+
+test("team play: shuffling needs team play", () => {
+    const { s, host, last } = withGuest();
+    s.handle(host, { type: "shuffle" });
+    assert.equal(last(host, "error").code, "INVALID");
+});
+
+test("team play: with fewer teams, the players of the dropped ones go to the smallest teams left", () => {
+    const { s, host, teamOf } = teamLobby({ ...AVERAGE, teams: 4 });
+    assert.deepEqual(["Hans", "Max", "Ida", "Eve"].map(teamOf), [0, 1, 2, 3]);
+    s.handle(host, { type: "settings", settings: AVERAGE });
+    assert.deepEqual(["Hans", "Max", "Ida", "Eve"].map(teamOf), [0, 1, 0, 1]);
+});
+
+test("team play: START needs players in two teams at least", () => {
+    const { s, host, max, eve, last } = teamLobby();
+    s.handle(max, { type: "team", team: 0 });
+    s.handle(eve, { type: "team", team: 0 });
+    assert.equal(last(host, "state").canStart, false);
+    s.handle(host, { type: "start", guesses: GUESSES });
+    assert.equal(last(host, "error").code, "NO_PLAYERS");
+    s.handle(eve, { type: "team", team: 1 });
+    assert.equal(last(host, "state").canStart, true);
+});
