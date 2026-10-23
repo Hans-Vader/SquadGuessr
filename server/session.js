@@ -1,5 +1,5 @@
 import { randomUUID, randomInt } from "node:crypto";
-import { scoreAnswer, mapSize } from "../src/js/scoring.js";
+import { scoreAnswer, mapSize, penaltyPoints, MAX_PENALTY } from "../src/js/scoring.js";
 import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.js";
 
 export const MAX_PLAYERS = 30;
@@ -41,6 +41,9 @@ export class Session {
         this.players = new Map();
         this.watchers = new Set();
         this.kicked = new Set();
+        // team play: the score per team (index = team), and every round's team results (index = round)
+        this.teamScores = [];
+        this.teamRounds = [];
         this.lastActivity = now();
     }
 
@@ -339,7 +342,10 @@ export class Session {
         const answer = this.settings.mode === "classic"
             ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
             : { lat: null, lng: null, mapName: msg.mapName };
-        player.answers[this.round] = { ...answer, ...scoreAnswer(this.settings.mode, this.guesses[this.round], answer) };
+        const scored = scoreAnswer(this.settings.mode, this.guesses[this.round], answer);
+        // Average with minus points: beyond the last scoring step a guess costs the team points
+        if (this.settings.team === "average" && this.settings.penalty) scored.points += penaltyPoints(scored.distance, size);
+        player.answers[this.round] = { ...answer, ...scored };
         this.broadcastState();
         this.sendTeamGuesses(player.team);
         this.checkRoundEnd();
@@ -373,15 +379,37 @@ export class Session {
     }
 
     endRound() {
+        // with minus points giving no answer must never beat a bad guess; whoever is gone for good is not counted (teamResult)
+        const missed = this.settings.team === "average" && this.settings.penalty ? -MAX_PENALTY : 0;
+        this.players.forEach(p => {
+            if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: this.isPresent(p) ? missed : 0 };
+        });
+        this.reveal();
+    }
+
+    reveal() {
         this.phase = "reveal";
         this.deadline = null;
         this.nextAt = this.settings.next ? this.now() + this.settings.next * 1000 : null;
-        this.players.forEach(p => {
-            if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: 0 };
-            p.score += p.answers[this.round].points;
-        });
+        this.players.forEach(p => { p.score += p.answers[this.round].points; });
+        if (this.settings.team) {
+            this.teamRounds[this.round] = this.teamsInPlay().map(team => this.teamResult(team));
+            this.teamRounds[this.round].forEach(r => { this.teamScores[r.id] = (this.teamScores[r.id] ?? 0) + r.points; });
+        }
         this.broadcastState();
         this.broadcast(this.revealMsg());
+    }
+
+    /**
+     * A team's result this round: its points, and the point it played (none in Average)
+     */
+    teamResult(team) {
+        // whoever is gone for good does not drag the team down; whoever is there and gave no answer does
+        const counted = this.members(team).filter(p => this.guessOf(p) || this.isPresent(p));
+        const sum = counted.reduce((total, p) => total + p.answers[this.round].points, 0);
+        // || 0: an average just below 0 would round to -0
+        const points = counted.length ? Math.round(sum / counted.length) || 0 : 0;
+        return { id: team, points, lat: null, lng: null, picked: null };
     }
 
     next(conn) {
@@ -506,21 +534,26 @@ export class Session {
     revealMsg() {
         const g = this.guesses[this.round];
         const results = [...this.players.values()]
-            .map(p => ({ id: p.id, name: p.name, score: p.score, ...p.answers[this.round] }))
+            .map(p => ({ id: p.id, name: p.name, score: p.score, ...(this.settings.team && { team: p.team }), ...p.answers[this.round] }))
             .sort((a, b) => b.score - a.score);
-        return {
+        const msg = {
             type: "reveal",
             index: this.round,
             total: this.guesses.length,
             solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng },
             results,
         };
+        if (!this.settings.team) return msg;
+        const teams = this.teamRounds[this.round].map(r => ({ ...r, score: this.teamScores[r.id] })).sort((a, b) => b.score - a.score);
+        return { ...msg, teams };
     }
 
     finalMsg() {
-        const ranking = [...this.players.values()]
-            .map(p => ({ id: p.id, name: p.name, score: p.score }))
-            .sort((a, b) => b.score - a.score);
+        // team play ranks the teams, with who played in them
+        const rows = this.settings.team
+            ? this.teamsInPlay().map(team => ({ id: team, score: this.teamScores[team] ?? 0, members: this.members(team).map(p => p.name) }))
+            : [...this.players.values()].map(p => ({ id: p.id, name: p.name, score: p.score }));
+        const ranking = rows.sort((a, b) => b.score - a.score);
         const top = ranking[0]?.score;
         return { type: "final", ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) };
     }
@@ -559,6 +592,13 @@ export class Session {
      */
     members(team) {
         return [...this.players.values()].filter(p => p.team === team);
+    }
+
+    /**
+     * The teams that have players, in team order
+     */
+    teamsInPlay() {
+        return [...new Set([...this.players.values()].map(p => p.team))].sort((a, b) => a - b);
     }
 
     /**
@@ -626,6 +666,8 @@ export class Session {
 
     resetScores() {
         this.players.forEach(p => { p.score = 0; p.answers = []; p.ready = -1; p.stalled = false; });
+        this.teamScores = [];
+        this.teamRounds = [];
     }
 
     broadcastState() {

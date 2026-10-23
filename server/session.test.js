@@ -1309,3 +1309,77 @@ test("team play: a player who reconnects during the round gets their team's gues
     s.join(phone, { token: last(ida, "welcome").token });
     assert.deepEqual(last(phone, "teamGuesses").guesses.map(g => g.name), ["Hans", "Ida"]);
 });
+
+test("team play average: a team scores the rounded average of its players' points", () => {
+    const { s, host, max, ida, eve, last } = teamGame();
+    s.handle(host, south(0));
+    s.handle(ida, south(2 * ZONE));
+    s.handle(max, south(0));
+    s.handle(eve, south(0));
+    const reveal = last(host, "reveal");
+    assert.deepEqual(reveal.teams, [
+        { id: 1, points: 100, lat: null, lng: null, picked: null, score: 100 },
+        { id: 0, points: 50, lat: null, lng: null, picked: null, score: 50 },
+    ]);
+    assert.deepEqual(reveal.results.map(r => [r.name, r.team]).sort(), [["Eve", 1], ["Hans", 0], ["Ida", 0], ["Max", 1]]);
+});
+
+test("team play average with minus points: a far guess costs up to 50, and so does giving no answer", () => {
+    const { s, host, ida, eve, last } = teamGame({ ...AVERAGE, penalty: true });
+    s.handle(host, south(0));
+    // halfway from the last scoring step to three times its distance: −25
+    s.handle(ida, south(2 * ZONE));
+    s.handle(eve, south(0));
+    // Max gives no answer: −50
+    s.handle(host, { type: "endRound" });
+    const reveal = last(host, "reveal");
+    assert.deepEqual(reveal.results.map(r => [r.name, r.points]).sort(), [["Eve", 100], ["Hans", 100], ["Ida", -25], ["Max", -50]]);
+    // (100 − 25) / 2 = 37.5 → 38 and (100 − 50) / 2 = 25
+    assert.deepEqual(reveal.teams.map(t => [t.id, t.points]), [[0, 38], [1, 25]]);
+});
+
+test("team play average: a player gone for good does not drag the team down", () => {
+    const { s, host, max, ida, eve, last, advance } = teamGame();
+    s.disconnect(eve);
+    s.handle(host, south(0));
+    s.handle(ida, south(0));
+    s.handle(max, south(0));
+    advance(RECONNECT_MS);
+    s.tick();
+    assert.deepEqual(last(host, "reveal").teams.map(t => [t.id, t.points]), [[0, 100], [1, 100]]);
+});
+
+test("team play: a team whose players all left stays in the ranking and scores 0 from then on", () => {
+    const { s, host, max, ida, eve, last } = teamGame();
+    s.handle(max, { type: "leave" });
+    s.handle(eve, { type: "leave" });
+    s.handle(host, south(0));
+    s.handle(ida, south(0));
+    assert.deepEqual(last(host, "reveal").teams.map(t => [t.id, t.points, t.score]), [[0, 100, 100], [1, 0, 0]]);
+});
+
+test("team play: the final ranks the teams with their players, a tie has two winners; the teams stay for the next game", () => {
+    const { s, host, max, ida, eve, last, begin, teamOf } = teamGame();
+    for (let i = 0; i < 3; i++) {
+        [host, max, ida, eve].forEach(conn => s.handle(conn, { type: "answer", index: i, lat: GUESSES[i].lat, lng: GUESSES[i].lng }));
+        readyAll(s, s.round + 1);
+        s.handle(host, { type: "next" });
+    }
+    const final = last(eve, "final");
+    assert.deepEqual(final.ranking, [{ id: 0, score: 300, members: ["Hans", "Ida"] }, { id: 1, score: 300, members: ["Max", "Eve"] }]);
+    assert.deepEqual(final.winners, [0, 1]);
+    s.handle(host, { type: "lobby" });
+    assert.deepEqual(["Hans", "Max", "Ida", "Eve"].map(teamOf), [0, 1, 0, 1]);
+    // the next game starts every team at 0 again
+    begin();
+    s.handle(host, { type: "endRound" });
+    assert.deepEqual(last(host, "reveal").teams.map(t => t.score), [0, 0]);
+});
+
+test("team play: without teams the reveal carries nothing about teams", () => {
+    const { s, host, guest, last } = started();
+    s.handle(host, { type: "endRound" });
+    const reveal = last(guest, "reveal");
+    assert.equal("teams" in reveal, false);
+    assert.equal("team" in reveal.results[0], false);
+});
