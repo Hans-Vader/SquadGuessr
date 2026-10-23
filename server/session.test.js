@@ -1542,7 +1542,7 @@ test("team play leader: with no guess in any team there is nothing to decide", (
 });
 
 test("team play leader: a leader gone during the decision hands it to a teammate, who may pick their own guess", () => {
-    const { s, host, max, ida, eve, last, advance } = teamGame({ ...LEADER, decide: 60 });
+    const { s, host, max, ida, eve, all, last, advance } = teamGame({ ...LEADER, decide: 60 });
     const id = (conn) => last(conn, "welcome").playerId;
     s.handle(ida, south(0));
     s.handle(eve, south(0));
@@ -1550,6 +1550,8 @@ test("team play leader: a leader gone during the decision hands it to a teammate
     advance(RECONNECT_MS);
     s.tick();
     assert.equal(s.phase, "decide");
+    // Eve's page has to offer her the pick: she gets the decision again, after the state that makes her leader
+    assert.equal(all(eve, "decide").length, 2);
     s.handle(eve, { type: "pick", index: 0, playerId: id(eve) });
     s.handle(host, { type: "pick", index: 0, playerId: id(ida) });
     assert.deepEqual(last(host, "reveal").teams.map(t => [t.id, t.picked]), [[0, id(ida)], [1, id(eve)]]);
@@ -1593,4 +1595,14 @@ test("team play leader: images reported during the decision count for the next r
     s.handle(host, { type: "next" });
     // nobody is waited for: everyone had round 2's images already
     assert.equal(s.phase, "round");
+});
+
+test("team play leader: who takes a team over because its leader left during the decision gets the decision, nobody else does again", () => {
+    const { s, sent, host, max, ida, eve, all } = teamGame({ ...LEADER, decide: 60 });
+    s.handle(ida, south(0));
+    s.handle(eve, south(0));
+    s.handle(max, { type: "leave" });
+    assert.deepEqual(sent.filter(x => x.conn === eve).slice(-3).map(x => x.msg.type), ["state", "teamGuesses", "decide"]);
+    // Hans leads already and may be picking: a second decision would wipe his selection
+    assert.equal(all(host, "decide").length, 1);
 });

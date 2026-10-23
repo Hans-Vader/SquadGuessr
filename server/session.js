@@ -406,9 +406,10 @@ export class Session {
             player.awayUntil = 0;
         }
         this.fixHost();
-        // a new leader sees the team's guesses at once
-        if (this.fixLeaders()) this.sendAllTeamGuesses();
+        const before = this.leaders;
+        const leaders = this.fixLeaders();
         this.broadcastState();
+        if (leaders) this.tellNewLeaders(before);
         this.checkRoundEnd();
     }
 
@@ -550,10 +551,10 @@ export class Session {
 
     tick() {
         const host = this.fixHost();
+        const before = this.leaders;
         const leaders = this.fixLeaders();
         if (host || leaders) this.broadcastState();
-        // a new leader sees the team's guesses at once
-        if (leaders) this.sendAllTeamGuesses();
+        if (leaders) this.tellNewLeaders(before);
         if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) return this.endRound();
         if (this.phase === "decide" && this.now() >= this.deadline + GRACE_MS) return this.reveal();
         if (this.phase === "reveal" && this.nextAt !== null && this.now() >= this.nextAt) return this.next();
@@ -594,6 +595,20 @@ export class Session {
         const changed = JSON.stringify(leaders) !== JSON.stringify(this.leaders);
         this.leaders = leaders;
         return changed;
+    }
+
+    /**
+     * After a leader changed (and after the state that says so): a new leader sees the team's guesses at once, and
+     * while the leaders decide gets the decision too, or their page would never offer the pick. Only them: a leader
+     * picking already would lose the selection
+     */
+    tellNewLeaders(before) {
+        this.sendAllTeamGuesses();
+        if (this.phase !== "decide") return;
+        this.leaders.filter(id => !before.includes(id)).forEach(id => {
+            const player = this.players.get(id);
+            if (player.conn) this.send(player.conn, this.decideMsg());
+        });
     }
 
     /**
