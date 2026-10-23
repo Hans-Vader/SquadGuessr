@@ -9,8 +9,10 @@ const TIMERS = [0, ...SECONDS, 60];
 const NEXTS = [0, ...SECONDS];
 const ROUNDS = [3, 5, 10];
 // team play: "off" is everyone for themselves
-const TEAM_MODES = ["off", "average", "centroid"];
+const TEAM_MODES = ["off", "average", "centroid", "leader"];
 const MAX_TEAMS = 10;
+// Leader: how long the leaders have to pick their team's guess
+const DECIDES = [10, 15, 20, 30, 45, 60];
 // any plain file name under /img/ (real ones look like "Screenshot (301).webp"): a rejected name fails START for the
 // whole game. Kept out is only what could leave the double-quoted HTML attribute the url ends up in or the path
 // itself: quotes, angle brackets, backslash, control characters and whitespace other than a space, and ?, # and %
@@ -39,10 +41,11 @@ export function validSettings(s) {
 /**
  * Team play is classic only: what a team plays is a point on the map. A missing field takes its default, null does not
  */
-function validTeamSettings({ mode, team = "off", teams = 2, penalty = false }) {
+function validTeamSettings({ mode, team = "off", teams = 2, penalty = false, decide = 20 }) {
     return TEAM_MODES.includes(team) && (team === "off" || mode === "classic")
         && Number.isInteger(teams) && teams >= 2 && teams <= MAX_TEAMS
-        && typeof penalty === "boolean";
+        && typeof penalty === "boolean"
+        && DECIDES.includes(decide);
 }
 
 export function validGuesses(guesses, rounds) {
