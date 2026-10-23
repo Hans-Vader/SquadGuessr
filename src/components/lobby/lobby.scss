@@ -859,3 +859,63 @@ body.mp-chat #mpChat {
         background: #272727;
     }
 }
+
+// the point a team played at the reveal (Midpoint, Leader): bigger than a pin, ringed, shadowed and flagged, so it
+// stands out on any map
+
+.mp-team-point {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    .disc {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        border: 4px solid #fff;
+        border-radius: 50%;
+        background: var(--team);
+        // a dark edge and a shadow: the white border alone vanishes on light maps
+        box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.7), 0 4px 10px rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 18px;
+        line-height: 1;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+    }
+    // pulses three times when the reveal shows the point, then rests
+    .ring {
+        position: absolute;
+        inset: 0;
+        border: 3px solid var(--team);
+        border-radius: 50%;
+        opacity: 0;
+        animation: mp-team-pulse 1.2s ease-out 3;
+    }
+}
+
+@keyframes mp-team-pulse {
+    from {
+        opacity: 0.9;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(2.2);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mp-team-point .ring {
+        animation: none;
+    }
+}
+
+.leaflet-tooltip.mp-team-tip {
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
+// the big screen is looked at from across the room
+body.watch-mode .mp-team-point {
+    transform: scale(1.33);
+}

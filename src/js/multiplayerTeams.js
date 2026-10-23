@@ -1,5 +1,5 @@
 import i18next from "i18next";
-import { CircleMarker, LayerGroup } from "leaflet";
+import { CircleMarker, DivIcon, LayerGroup, Marker } from "leaflet";
 
 // one color per team, in team order: mp.teamNames names them the same way
 export const TEAM_COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#e5e5e5", "#92400e"];
@@ -125,14 +125,23 @@ export class Teams {
     }
 
     /**
-     * The point a team played at the reveal (Midpoint, Leader): bigger than a player's, with the team's name and points
+     * The point a team played at the reveal (Midpoint, Leader): a flagged disc in the team's color, bigger than a pin and
+     * above every one of them (lobby.scss), with the team's name and points, and in Leader whose guess the leader picked
      */
-    addTeamMarker(t) {
+    addTeamMarker(t, by) {
         const mm = this.mp.app.minimap;
         const label = document.createElement("span");
-        label.textContent = `${teamName(t.id)} ${formatPoints(t.points)}`;
-        return new CircleMarker(this.mp.toMap(t), { radius: 13, color: "#fff", weight: 3, fillColor: TEAM_COLORS[t.id], fillOpacity: 1 })
+        label.textContent = `${teamName(t.id)} ${formatPoints(t.points)}${by ? ` · ${by}` : ""}`;
+        label.prepend(teamDot(t.id)[0]);
+        const point = document.createElement("div");
+        point.className = "mp-team-point";
+        point.style.setProperty("--team", TEAM_COLORS[t.id]);
+        // fixed markup, nothing from a player in it
+        point.innerHTML = "<span class=\"ring\"></span><span class=\"disc\">⚑</span>";
+        // own class: Leaflet's default one would put a white box behind it
+        const icon = new DivIcon({ html: point, className: "mp-team-marker", iconSize: [40, 40], iconAnchor: [20, 20] });
+        return new Marker(this.mp.toMap(t), { icon, keyboard: false, zIndexOffset: 2000 })
             .addTo(mm.markersGroup)
-            .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -13], className: "mpTooltip" });
+            .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -22], className: "mpTooltip mp-team-tip" });
     }
 }
