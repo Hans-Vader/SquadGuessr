@@ -74,7 +74,7 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 
 - `validSettings` erlaubt fehlende Team-Felder, weil ein älterer Client sie nicht schickt. `pickSettings` setzt dann die Defaults.
 - `team !== "off"` ist nur mit `mode === "classic"` gültig.
-- Alle Felder bleiben gespeichert, auch bei `team === "off"`. So bleibt die Wahl beim Zurückschalten erhalten.
+- Bei `team === "off"` enthält `settings` die Team-Felder nicht. So sehen ältere Clients und das Spiel ohne Teams genau die Einstellungen von heute, und die bestehenden Tests bleiben unverändert. Beim Zurückschalten bleibt die Wahl trotzdem erhalten, weil die ausgeblendeten Selects im Client ihren Wert behalten.
 - Wie heute nimmt jede Änderung den Gästen ihr READY.
 
 ## Server (`server/session.js`)
@@ -160,8 +160,7 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
   - Im Team-Modus folgt danach `sendTeamGuesses(player.team)`.
 - **`checkRoundEnd()`** (Phase `round`): Gewartet wird auf anwesende Spieler ohne Antwort. Bei `leader` zählen die Leader nicht dazu.
 - **`endRound()`:**
-  - Fehlende Antworten werden aufgefüllt mit `{ lat: null, lng: null, mapName: null, distance: null, points, absent }`.
-    - `absent = !isPresent(p)`.
+  - Fehlende Antworten werden aufgefüllt mit `{ lat: null, lng: null, mapName: null, distance: null, points }`.
     - `points` ist −50 bei `average` mit `penalty`, wenn der Spieler anwesend ist. Sonst ist es 0.
   - Danach geht es bei `leader` weiter mit `startDecide()`, sonst mit `reveal()`.
   - `reveal()` übernimmt den bisherigen zweiten Teil von `endRound()`: Punkte aufaddieren, Phase setzen, `nextAt` setzen, `state` und `reveal` senden.
@@ -183,8 +182,8 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 - **`checkDecideEnd()`:** Haben alle Teams mit mindestens einem Guess gewählt, folgt `reveal()`.
 - **`tick()`:** Bei `decide` und `now >= deadline + GRACE_MS` folgt `reveal()`.
 - **`ready()`:** Akzeptiert auch `decide`, mit derselben Indexregel wie in `round` (neuester Index ist `round + 1`).
-- **`sendPhase()`:** Schickt in `decide` die `decide`-Nachricht und den `prepare` der nächsten Runde.
-- **`reconnect()`:** Schickt dem Zurückkehrenden zusätzlich `teamGuesses`, wenn er berechtigt ist.
+- **`sendPhase()`:** Schickt in `decide` die `round`-Nachricht (Bild und Karte, mit `deadline: null`), dann die `decide`-Nachricht und den `prepare` der nächsten Runde. `roundMsg()` setzt `deadline` nur in der Phase `round`.
+- **`reconnect()`:** Schickt danach `teamGuesses` an das Team des Zurückkehrenden. Er bekommt sie, wenn er berechtigt ist.
 
 ### Sichtbarkeit: `sendTeamGuesses(team)`
 
@@ -198,7 +197,8 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
   - nach jeder Antwort im Team,
   - zu Beginn von `decide`,
   - beim Reconnect,
-  - beim Leaderwechsel in `round` und `decide`, jeweils nur an die betroffene Person.
+  - beim Leaderwechsel in `round` und `decide`.
+- Sie geht dabei jeweils an alle Berechtigten des Teams. Ein Duplikat ist harmlos, weil der Client die Marker einfach neu zeichnet.
 
 ### Wertung in `reveal()`
 
@@ -206,7 +206,7 @@ Für jedes Team `t` mit Spielern:
 
 | Variante | Team-Punkt (`lat`, `lng`) | Rundenpunkte |
 |---|---|---|
-| `average` | `null` | `Math.round(Summe / Anzahl)` über alle Mitglieder mit `!absent`. Ohne solche Mitglieder 0 |
+| `average` | `null` | `Math.round(Summe / Anzahl)` über alle Mitglieder, die einen Guess haben oder beim Rundenende anwesend sind (`isPresent`). Ohne solche Mitglieder 0. Die Rechnung läuft im selben Aufruf wie `endRound()`, also zum selben Zeitpunkt |
 | `centroid` | `centroid()` der Guesses mit `lat !== null` | `pointsForDistance(distance(Team-Punkt, Lösung), size).points`. Ohne Guess 0 und `null` |
 | `leader` | Guess von `picks[t]` | Punkte dieses Guesses. Ohne Pick 0 und `null` |
 
@@ -257,12 +257,12 @@ export function centroid(points) { … }
 
 - **Neue Selects in `#mpSettings`:**
   - `#mpTeam`: Aus, Leader, Durchschnitt, Mittelpunkt.
-  - `#mpTeams`: 2 bis 10.
+  - `#mpTeamCount`: 2 bis 10.
   - `#mpPenalty`: Aus oder An, sichtbar nur bei Durchschnitt.
   - `#mpDecide`: 10 bis 60 s, sichtbar nur bei Leader.
 - Steht `#mpMode` auf „Find the Map“, ist `#mpTeam` gesperrt. Ein Wechsel dorthin schickt `team: "off"` mit.
 - `readSettings`, `renderState` und `describeSettings` berücksichtigen die neuen Felder. Beispiel für die Zusammenfassung: „Teams: Leader · 4 Teams · Entscheidung 20 s“.
-- **`#mpPlayers` im Team-Modus:**
+- **`#mpTeamList` im Team-Modus** (an Stelle von `#mpPlayers`, das dann ausgeblendet ist):
   - Es gibt einen Block pro Team von 0 bis `teams − 1`, auch für leere Teams, damit man beitreten kann.
   - Der Kopf zeigt Farbe, Name und Anzahl. Ein Klick darauf schickt `team`.
   - Die Chips bleiben wie heute. Im Leader-Modus kommt ⭐ für den Leader dazu.
@@ -280,7 +280,7 @@ export function centroid(points) { … }
   - GUESS ist ausgeblendet.
   - Die Statuszeile zeigt „Dein Team tippt …“.
 - **`teamGuesses`:**
-  - Die Teammitglieder werden in Teamfarbe mit Namen und ohne Punkte in einer eigenen Layer-Gruppe gezeichnet.
+  - Die Teammitglieder werden als Punkte in Teamfarbe (Leaflet `CircleMarker`) mit Namen und ohne Punktzahl in einer eigenen Layer-Gruppe gezeichnet. Der eigene Guess bleibt der normale Marker.
   - Jede neue Nachricht ersetzt die Gruppe.
   - Bei einer neuen Runde und im Reveal wird die Gruppe geleert.
 
@@ -296,7 +296,7 @@ export function centroid(points) { … }
 ### Reveal
 
 - **Spieler-Marker:**
-  - In Teamfarbe mit „Name +12“ bzw. „Name −23“. Minuspunkte bekommen kein vorangestelltes „+“, anders als heute bei `+${points}`.
+  - Sie bleiben die bekannten Pins. Im Namensschild steht ein Punkt in Teamfarbe vor „Name +12“ bzw. „Name −23“, und die Distanzlinie hat die Teamfarbe. Minuspunkte werden mit echtem Minuszeichen und ohne vorangestelltes „+“ angezeigt, anders als heute bei `+${points}`.
   - Der eigene Marker bleibt hervorgehoben.
 - **Team-Marker** bei `centroid` und `leader`, sofern `lat !== null`:
   - größer als die Spieler-Marker,
