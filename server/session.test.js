@@ -1383,3 +1383,14 @@ test("team play: without teams the reveal carries nothing about teams", () => {
     assert.equal("teams" in reveal, false);
     assert.equal("team" in reveal.results[0], false);
 });
+
+test("team play: the state carries the team scores for the score in the corner; without teams it does not", () => {
+    const { s, host, ida, last } = teamGame();
+    s.handle(host, south(0));
+    s.handle(ida, south(0));
+    // Max and Eve gave no answer: 0
+    s.handle(host, { type: "endRound" });
+    assert.deepEqual(last(host, "state").teamScores, [100, 0]);
+    const plain = started();
+    assert.equal("teamScores" in plain.last(plain.host, "state"), false);
+});

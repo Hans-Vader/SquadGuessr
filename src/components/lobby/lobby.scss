@@ -248,6 +248,15 @@
     .down {
         color: #e66;
     }
+    .points.negative {
+        color: #e66;
+    }
+    // team play's final: who played in the team, on a line of its own
+    .members {
+        grid-column: 1 / -1;
+        font-size: 0.75em;
+        color: #aaa;
+    }
 }
 
 #mpChips,

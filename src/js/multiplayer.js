@@ -7,7 +7,7 @@ import { copyText } from "./clipboard.js";
 import Preloader from "./preloader.js";
 import { findMap, basemapUrl } from "./data/maps.js";
 import { rankMoves } from "./scoring.js";
-import { Teams, teamDot } from "./multiplayerTeams.js";
+import { Teams, TEAM_COLORS, teamDot, teamName, formatPoints } from "./multiplayerTeams.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 // NEXT / RESULTS stay locked until the server answers, or at most this long (e.g. the connection just dropped)
@@ -321,6 +321,7 @@ export default class Multiplayer {
         this.preloader = new Preloader();
         this.visible = Promise.resolve();
         this.answered = false;
+        this.teams.clear();
         this.roundIndex = null;
         this.revealIndex = null;
         this.gaveHost = false;
@@ -412,6 +413,9 @@ export default class Multiplayer {
         case "final":
             this.onFinal(msg);
             break;
+        case "teamGuesses":
+            this.teams.showGuesses(msg);
+            break;
         case "left":
             this.toast("info", "mp.left", { name: msg.name });
             break;
@@ -474,6 +478,13 @@ export default class Multiplayer {
         return this.me !== null && this.state?.hostId === this.me;
     }
 
+    /**
+     * This player's team in team play (undefined on the big screen)
+     */
+    myTeam() {
+        return this.state?.players.find(p => p.id === this.me)?.team;
+    }
+
     renderState() {
         const s = this.state;
         this.code = s.code;
@@ -503,7 +514,8 @@ export default class Multiplayer {
         this.renderPlayers(s);
 
         const me = s.players.find(p => p.id === this.me);
-        if (me) $("#totalPoints").text(me.score);
+        // team play: the score in the corner is the team's, a player's own counts for nothing
+        if (me) $("#totalPoints").text(s.settings.team ? s.teamScores?.[me.team] ?? 0 : me.score);
 
         this.renderStatus();
         if (s.phase === "lobby") {
@@ -669,6 +681,7 @@ export default class Multiplayer {
         $("body").removeClass("mp-reveal");
         let mapShown = Promise.resolve();
         if (!resent) {
+            this.teams.clear();
             app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
             app.solutionMarker = null;
             if (msg.map) mapShown = app.setupMap();
@@ -742,6 +755,8 @@ export default class Multiplayer {
         this.lastReveal = msg;
 
         clearInterval(this.countdown);
+        // the reveal shows everyone's guesses as markers of their own
+        this.teams.clear();
         app.stopTimer();
         app.selectedMode = this.state.settings.mode;
         // before any map sizing: on the big screen the reveal gives the map most of the width
@@ -774,11 +789,13 @@ export default class Multiplayer {
         // everyone sees how far off everyone was: the others in pale cyan (red on the big screen), mine red and
         // added last so my tag and line stay on top; the z-index offset does the same for my marker
         const othersStyle = this.watching ? {} : { color: "#33d6ff", opacity: 0.5 };
+        // team play: every line in its team's color
+        const lineStyle = r => (msg.teams ? { color: TEAM_COLORS[r.team], opacity: 0.8 } : othersStyle);
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => {
                 this.addPlayerMarker(r);
-                app.drawSolutionDistance(latLng, this.toMap(r), othersStyle);
+                app.drawSolutionDistance(latLng, this.toMap(r), lineStyle(r));
             });
         if (mine && mine.lat !== null) {
             const you = { ...mine, name: i18next.t("mp.you", { ns: "common" }) };
@@ -787,20 +804,23 @@ export default class Multiplayer {
         }
         this.focusReveal(latLng, msg.results);
 
+        // team play: the round counts for the team, so the team's points are the ones shown
+        const points = msg.teams?.find(t => t.id === this.myTeam())?.points ?? mine?.points;
         if (mine) {
             $("#dist").text(mine.distance === null ? "—" : app.formatDistance(mine.distance));
-            $("#points").text(mine.points);
+            $("#points").text(points);
             $("#text").css("visibility", "visible");
         }
         const mapLabel = solution.map.charAt(0).toUpperCase() + solution.map.slice(1);
         if (app.selectedMode === "mapFinder") {
             $("#mapName").text(`${mine ? (mine.points ? "✅ " : "❌ ") : ""}${mapLabel}`).fadeIn();
         } else if (mine) {
-            $("#mapName").text(`${mine.points} ${i18next.t("shared.points", { ns: "common" })}`).fadeIn();
+            $("#mapName").text(`${points} ${i18next.t("shared.points", { ns: "common" })}`).fadeIn();
         }
 
-        // round 1 has no places to leave: everybody started at 0
-        this.renderRanking($("#mpRanking"), msg.results, [], msg.index > 0 ? rankMoves(msg.results) : {});
+        // team play ranks the teams; round 1 has no places to leave: everybody started at 0
+        const rows = msg.teams ? msg.teams.map(t => ({ ...t, team: t.id, name: teamName(t.id) })) : msg.results;
+        this.renderRanking($("#mpRanking"), rows, [], msg.index > 0 ? rankMoves(rows) : {}, msg.teams ? this.myTeam() : this.me);
         $("#mpRanking").prop("hidden", false);
 
         app.INPUT_GUESS.prop("hidden", true);
@@ -839,7 +859,9 @@ export default class Multiplayer {
     addPlayerMarker(result, options = {}) {
         const mm = this.app.minimap;
         const label = document.createElement("span");
-        label.textContent = `${result.name} +${result.points}`;
+        label.textContent = `${result.name} ${formatPoints(result.points)}`;
+        // team play: the team's color in front of the name
+        if (result.team !== undefined) label.prepend(teamDot(result.team)[0]);
         return new guessMarker(this.toMap(result), { draggable: false, ...options }, mm)
             .addTo(mm.markersGroup)
             .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -45], className: "mpTooltip" });
@@ -855,7 +877,11 @@ export default class Multiplayer {
     }
 
     finalFromReveal() {
-        const ranking = this.lastReveal.results.map(r => ({ id: r.id, name: r.name, score: r.score }));
+        const { results, teams } = this.lastReveal;
+        // team play ranks the teams, with who played in them
+        const ranking = teams
+            ? teams.map(t => ({ id: t.id, score: t.score, members: this.state.players.filter(p => p.team === t.id).map(p => p.name) }))
+            : results.map(r => ({ id: r.id, name: r.name, score: r.score }));
         const top = ranking[0]?.score;
         this.onFinal({ ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) });
     }
@@ -864,9 +890,12 @@ export default class Multiplayer {
         clearInterval(this.countdown);
         // no prepare follows the last round, so its preloaded images (and their retries) would outlive the game
         this.preloader.keep([]);
-        this.renderRanking($("#mpFinalRanking"), msg.ranking, msg.winners);
-        const me = msg.ranking.find(r => r.id === this.me);
-        $("#scoreValue").text(me ? me.score : msg.ranking[0]?.score ?? 0);
+        const teamPlay = Boolean(this.state?.settings.team);
+        const rows = teamPlay ? msg.ranking.map(r => ({ ...r, team: r.id, name: teamName(r.id) })) : msg.ranking;
+        const mine = teamPlay ? this.myTeam() : this.me;
+        this.renderRanking($("#mpFinalRanking"), rows, msg.winners, {}, mine);
+        const me = rows.find(r => r.id === mine);
+        $("#scoreValue").text(me ? me.score : rows[0]?.score ?? 0);
         this.app.switchUI("results");
     }
 
@@ -925,7 +954,7 @@ export default class Multiplayer {
         return p.ready ? "" : "⏳";
     }
 
-    renderRanking($list, rows, winners = [], moves = {}) {
+    renderRanking($list, rows, winners = [], moves = {}, mine = this.me) {
         $list.empty();
         rows.forEach((row, i) => {
             const move = moves[row.id];
@@ -934,13 +963,16 @@ export default class Multiplayer {
             if (move) $move.addClass(move).attr({ role: "img", "aria-label": i18next.t(`mp.${move}`, { ns: "common" }) });
             $("<li>")
                 .attr("data-id", row.id)
-                .toggleClass("me", row.id === this.me)
+                .toggleClass("me", row.id === mine)
                 .append(
                     $("<span class=\"rank\">").text(winners.includes(row.id) ? "🏆" : `${i + 1}.`),
                     $move,
-                    $("<span class=\"name\">").text(row.name),
-                    $("<span class=\"points\">").text(row.points === undefined ? "" : `+${row.points}`),
-                    $("<span class=\"score\">").text(row.score)
+                    // team play: the team's color in front of its name
+                    $("<span class=\"name\">").text(row.name).prepend(row.team === undefined ? null : teamDot(row.team)),
+                    $("<span class=\"points\">").text(row.points === undefined ? "" : formatPoints(row.points)).toggleClass("negative", row.points < 0),
+                    $("<span class=\"score\">").text(row.score),
+                    // team play's final: who played in the team
+                    row.members ? $("<span class=\"members\">").text(row.members.join(", ")) : null
                 )
                 .appendTo($list);
         });
