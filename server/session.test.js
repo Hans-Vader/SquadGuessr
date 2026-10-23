@@ -1419,3 +1419,48 @@ test("team play midpoint: a team without a single guess scores 0 and has no poin
     s.handle(host, { type: "endRound" });
     assert.deepEqual(last(host, "reveal").teams.find(t => t.id === 1), { id: 1, points: 0, lat: null, lng: null, picked: null, score: 0 });
 });
+
+test("team play: whoever is first in a team leads it, and can hand the role to a teammate in the lobby", () => {
+    const { s, host, max, eve, last } = teamLobby();
+    const id = (conn) => last(conn, "welcome").playerId;
+    const leaders = () => last(host, "state").players.filter(p => p.leader).map(p => p.name);
+    assert.deepEqual(leaders(), ["Hans", "Max"]);
+    s.handle(max, { type: "lead", playerId: id(eve) });
+    assert.deepEqual(leaders(), ["Hans", "Eve"]);
+    // only the leader, and only to someone in their own team
+    s.handle(max, { type: "lead", playerId: id(max) });
+    assert.equal(last(max, "error").code, "INVALID");
+    s.handle(host, { type: "lead", playerId: id(eve) });
+    assert.equal(last(host, "error").code, "INVALID");
+    assert.deepEqual(leaders(), ["Hans", "Eve"]);
+});
+
+test("team play: when a leader leaves or switches teams, whoever has been in the team longest leads it", () => {
+    const { s, host, max, ida, last, advance } = teamLobby();
+    const leaders = () => last(ida, "state").players.filter(p => p.leader).map(p => p.name);
+    advance(1000);
+    s.handle(max, { type: "team", team: 0 });
+    // team 0: Hans, Ida, then Max; team 1: Eve alone now
+    assert.deepEqual(leaders(), ["Hans", "Eve"]);
+    s.handle(host, { type: "leave" });
+    assert.deepEqual(leaders(), ["Ida", "Eve"]);
+});
+
+test("team play: a leader gone longer than a reload hands the team to a connected teammate", () => {
+    const { s, max, eve, last, advance } = teamGame();
+    const leads = (name) => last(eve, "state").players.find(p => p.name === name).leader;
+    s.disconnect(max);
+    advance(RECONNECT_MS - 1);
+    s.tick();
+    assert.equal(leads("Max"), true);
+    advance(1);
+    s.tick();
+    assert.deepEqual([leads("Max"), leads("Eve")], [false, true]);
+});
+
+test("team play: after shuffling, every team has a leader of its own", () => {
+    const { s, host, last } = teamLobby();
+    s.handle(host, { type: "shuffle" });
+    const players = last(host, "state").players;
+    assert.deepEqual([0, 1].map(team => players.filter(p => p.team === team && p.leader).length), [1, 1]);
+});

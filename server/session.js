@@ -44,6 +44,8 @@ export class Session {
         // team play: the score per team (index = team), and every round's team results (index = round)
         this.teamScores = [];
         this.teamRounds = [];
+        // team play: who leads each team (index = team), kept for every variant; only Leader gives it a meaning
+        this.leaders = [];
         this.lastActivity = now();
     }
 
@@ -55,6 +57,7 @@ export class Session {
         this.settings = pickSettings(settings);
         const player = this.addPlayer(conn, clean);
         this.hostId = player.id;
+        this.fixLeaders();
         this.welcome(player);
         this.broadcastState();
         return true;
@@ -75,6 +78,7 @@ export class Session {
         const player = this.addPlayer(conn, clean);
         this.freshWait();
         if (same?.id === this.hostId) this.hostId = player.id;
+        this.fixLeaders();
         this.welcome(player);
         this.broadcastState();
         // joined during the countdown: round 1's images to load
@@ -123,6 +127,7 @@ export class Session {
         if (msg.type === "ready") return this.ready(player, msg.index);
         if (msg.type === "lobbyReady") return this.lobbyReady(player, msg.ready);
         if (msg.type === "team") return this.switchTeam(player, msg.team);
+        if (msg.type === "lead") return this.lead(player, msg.playerId);
         if (msg.type === "leave") return this.leave(player);
         // after a game everyone leaves their results on their own
         if (msg.type === "lobby") return this.toLobby(player);
@@ -177,6 +182,8 @@ export class Session {
         if (!Number.isInteger(team) || team < 0 || team >= this.teamSizes().length) return this.error(player.conn, "INVALID");
         if (player.team === team) return;
         player.team = team;
+        player.teamSince = this.now();
+        this.fixLeaders();
         this.broadcastState();
     }
 
@@ -190,7 +197,26 @@ export class Session {
             const j = randomInt(i + 1);
             [players[i], players[j]] = [players[j], players[i]];
         }
-        players.forEach((p, i) => { p.team = i % this.settings.teams; });
+        players.forEach((p, i) => {
+            p.team = i % this.settings.teams;
+            p.teamSince = this.now();
+        });
+        // new teams: their first player leads each
+        this.leaders = [];
+        this.fixLeaders();
+        this.broadcastState();
+    }
+
+    /**
+     * Lobby only: a leader hands the role to someone in their own team who is there
+     */
+    lead(player, playerId) {
+        if (this.phase !== "lobby" || this.leaders[player.team] !== player.id) return this.error(player.conn, "INVALID");
+        const target = this.players.get(playerId);
+        // gone or offline (left while the leader confirmed): nothing to do, the role would only move on again at once
+        if (!target?.connected) return;
+        if (target.team !== player.team) return this.error(player.conn, "INVALID");
+        this.leaders[player.team] = target.id;
         this.broadcastState();
     }
 
@@ -199,7 +225,14 @@ export class Session {
         const before = JSON.stringify(this.settings);
         this.settings = pickSettings(settings);
         // fewer teams: the players of the dropped ones go to the smallest teams left
-        if (this.settings.team) this.players.forEach(p => { if (p.team >= this.settings.teams) p.team = this.smallestTeam(); });
+        if (this.settings.team) {
+            this.players.forEach(p => {
+                if (p.team < this.settings.teams) return;
+                p.team = this.smallestTeam();
+                p.teamSince = this.now();
+            });
+        }
+        this.fixLeaders();
         // a ready was for the old settings: the guests confirm the new ones again
         const unready = JSON.stringify(this.settings) === before ? [] : [...this.players.values()].filter(p => p.lobbyReady);
         unready.forEach(p => { p.lobbyReady = false; });
@@ -367,6 +400,7 @@ export class Session {
             player.awayUntil = 0;
         }
         this.fixHost();
+        this.fixLeaders();
         this.broadcastState();
         this.checkRoundEnd();
     }
@@ -456,6 +490,7 @@ export class Session {
         this.nextAt = null;
         // whoever left or dropped out during the game does not haunt the next one (coming back simply joins again)
         this.players.forEach(p => { if (!p.connected) this.players.delete(p.id); });
+        this.fixLeaders();
         // the next game asks everyone again
         this.players.forEach(p => { p.lobbyReady = false; p.backAt = null; });
         player.backAt = this.now();
@@ -464,7 +499,9 @@ export class Session {
     }
 
     tick() {
-        if (this.fixHost()) this.broadcastState();
+        const host = this.fixHost();
+        const leaders = this.fixLeaders();
+        if (host || leaders) this.broadcastState();
         if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) return this.endRound();
         if (this.phase === "reveal" && this.nextAt !== null && this.now() >= this.nextAt) return this.next();
         // someone who dropped out and did not come back in time stops holding up the round
@@ -486,6 +523,24 @@ export class Session {
         if (!next) return false;
         this.hostId = next.id;
         return true;
+    }
+
+    /**
+     * Every team with players has a leader: whoever leads stays while they are in the team and there (like the host,
+     * see fixHost); otherwise the connected player who has been in the team longest takes over, and with nobody
+     * connected whoever has been in it longest. True if a leader changed
+     */
+    fixLeaders() {
+        const leaders = [];
+        this.teamsInPlay().forEach(team => {
+            const members = this.members(team).sort((a, b) => a.teamSince - b.teamSince);
+            const current = this.players.get(this.leaders[team]);
+            if (current?.team === team && this.isPresent(current)) leaders[team] = current.id;
+            else leaders[team] = (members.find(p => p.connected) ?? (current?.team === team ? current : members[0])).id;
+        });
+        const changed = JSON.stringify(leaders) !== JSON.stringify(this.leaders);
+        this.leaders = leaders;
+        return changed;
     }
 
     /**
@@ -526,6 +581,7 @@ export class Session {
                 // false while still on the results of the last game
                 back: p.backAt !== null,
                 team: p.team,
+                leader: this.leaders[p.team] === p.id,
             })),
         };
     }
@@ -638,7 +694,7 @@ export class Session {
     }
 
     addPlayer(conn, name) {
-        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, backAt: this.now(), team: this.smallestTeam() };
+        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, backAt: this.now(), team: this.smallestTeam(), teamSince: this.now() };
         this.players.set(player.id, player);
         return player;
     }
