@@ -8,6 +8,7 @@ import Preloader from "./preloader.js";
 import { findMap, basemapUrl } from "./data/maps.js";
 import { rankMoves } from "./scoring.js";
 import { CHAT_MAX, CHAT_GAP_MS, CHAT_HISTORY } from "./chatLimits.js";
+import { Teams, TEAM_COLORS, teamDot, teamName, formatPoints } from "./multiplayerTeams.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 // NEXT / RESULTS stay locked until the server answers, or at most this long (e.g. the connection just dropped)
@@ -61,6 +62,8 @@ export default class Multiplayer {
         this.readyAt = -Infinity;
         // the chat log stands at its newest line (kept up to date by its scroll events)
         this.chatPinned = true;
+        // team play: the lobby's teams, the teammates' guesses
+        this.teams = new Teams(this);
     }
 
     init() {
@@ -99,8 +102,10 @@ export default class Multiplayer {
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
         $("#BUTTON_MP_COPY_JOIN").on("click", () => this.copyLink("#mpJoinUrl", "mp.joinLinkCopied"));
         $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
+        $("#mpTeamList").on("click", ".mp-team-head", (e) => this.send({ type: "team", team: Number(e.currentTarget.dataset.team) }));
+        $("#BUTTON_MP_SHUFFLE").on("click", () => this.send({ type: "shuffle" }));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
-        $("#mpPlayers").on("click", ".mp-promote, .mp-kick", (e) => {
+        $("#mpPlayers, #mpTeamList").on("click", ".mp-promote, .mp-kick, .mp-lead", (e) => {
             const { id, action } = e.currentTarget.dataset;
             const name = this.state?.players.find(p => p.id === id)?.name;
             // a plain-text dialog: the name must not come out escaped
@@ -180,13 +185,19 @@ export default class Multiplayer {
 
     readSettings() {
         const rush = $("#mpTimer").val() === "rush";
+        const mode = $("#mpMode").val();
         return {
-            mode: $("#mpMode").val(),
+            mode,
             timer: Number(rush ? $("#mpRush").val() : $("#mpTimer").val()),
             rounds: Number($("#mpRounds").val()),
             // 0: the host moves on with NEXT
             next: $("#mpNext").val() === "auto" ? Number($("#mpNextDelay").val()) : 0,
             keepCode: $("#mpKeepCode").val() === "1",
+            // team play is classic only: switching to Find the Map turns it off
+            team: mode === "classic" ? $("#mpTeam").val() : "off",
+            teams: Number($("#mpTeamCount").val()),
+            penalty: $("#mpPenalty").val() === "on",
+            decide: Number($("#mpDecide").val()),
         };
     }
 
@@ -357,6 +368,7 @@ export default class Multiplayer {
         this.preloader = new Preloader();
         this.visible = Promise.resolve();
         this.answered = false;
+        this.teams.clear();
         this.roundIndex = null;
         this.revealIndex = null;
         this.unread = 0;
@@ -462,6 +474,12 @@ export default class Multiplayer {
         case "chat":
             this.onChat(msg);
             break;
+        case "teamGuesses":
+            this.teams.showGuesses(msg);
+            break;
+        case "decide":
+            this.onDecide(msg);
+            break;
         case "left":
             this.toast("info", "mp.left", { name: msg.name });
             break;
@@ -473,6 +491,9 @@ export default class Multiplayer {
             break;
         case "ended":
             this.onEnded(msg);
+            break;
+        case "unready":
+            this.toast("info", "mp.unready");
             break;
         case "error":
             this.onError(msg.code, msg);
@@ -538,6 +559,27 @@ export default class Multiplayer {
         return this.me !== null && this.state?.hostId === this.me;
     }
 
+    /**
+     * This player's team in team play (undefined on the big screen)
+     */
+    myTeam() {
+        return this.state?.players.find(p => p.id === this.me)?.team;
+    }
+
+    /**
+     * Leader: this player leads their team, so guesses nothing and picks the team's guess instead
+     */
+    isLeading() {
+        return this.state?.settings.team === "leader" && Boolean(this.state.players.find(p => p.id === this.me)?.leader);
+    }
+
+    /**
+     * May this player place a guess marker now: not as a leader, and not while the leaders decide
+     */
+    mayGuess() {
+        return this.state?.phase !== "decide" && !this.isLeading();
+    }
+
     renderState() {
         const s = this.state;
         this.code = s.code;
@@ -555,11 +597,23 @@ export default class Multiplayer {
         $("#mpNextDelay").prop("hidden", !next);
         if (next) $("#mpNextDelay").val(String(next));
         $("#mpKeepCode").val(s.settings.keepCode ? "1" : "0");
+        const team = s.settings.team ?? "off";
+        $("#mpTeam").val(team);
+        $("#mpTeamCount").prop("hidden", team === "off");
+        $(".mp-penalty").prop("hidden", team !== "average");
+        $(".mp-decide").prop("hidden", team !== "leader");
+        // without teams the settings carry no team fields: the hidden selects keep their last choice for switching back
+        if (s.settings.team) {
+            $("#mpTeamCount").val(String(s.settings.teams));
+            $("#mpPenalty").val(s.settings.penalty ? "on" : "off");
+            $("#mpDecide").val(String(s.settings.decide));
+        }
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
         const me = s.players.find(p => p.id === this.me);
-        if (me) $("#totalPoints").text(me.score);
+        // team play: the score in the corner is the team's, a player's own counts for nothing
+        if (me) $("#totalPoints").text(s.settings.team ? s.teamScores?.[me.team] ?? 0 : me.score);
 
         this.renderStatus();
         this.renderChat();
@@ -611,6 +665,8 @@ export default class Multiplayer {
         this.renderLobbyButtons(s, starting);
         // the lobby stays on screen while the first round loads: the start went through, the settings are fixed
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
+        // team play is classic only
+        $("#mpTeam").prop("disabled", s.phase !== "lobby" || s.settings.mode !== "classic");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
         clearInterval(this.statusTimer);
@@ -626,6 +682,20 @@ export default class Multiplayer {
             $("#mpStatus").prop("hidden", false);
         } else if (s.phase === "reveal") {
             $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", host || (last && !this.watching));
+        }
+        if (s.phase === "decide") {
+            const picked = s.players.filter(p => p.picked).length;
+            const text = this.teams.picking
+                ? i18next.t("mp.pickGuess", { ns: "common" })
+                : i18next.t("mp.leadersDeciding", { ns: "common", picked, total: this.decideTeams?.length ?? 0 });
+            $("#mpStatus").text(text).prop("hidden", false);
+            return;
+        }
+        // Leader: the leader waits for the team, and sees how far it is
+        if (s.phase === "round" && this.isLeading()) {
+            const team = s.players.filter(p => p.connected && p.team === this.myTeam() && p.id !== this.me);
+            $("#mpStatus").text(i18next.t("mp.teamGuessing", { ns: "common", answered: team.filter(p => p.answered).length, total: team.length })).prop("hidden", false);
+            return;
         }
         if (s.phase !== "round") return;
         const online = s.players.filter(p => p.connected);
@@ -650,12 +720,15 @@ export default class Multiplayer {
         if (!this.guessFetch) {
             $start.prop("disabled", !s.canStart).toggleClass("all-ready", s.allReady);
             // through data-i18n-title, so a language switch keeps the tooltip
+            // in team play with somebody else there, what is missing is a second team
+            const key = s.settings.team && s.players.some(p => p.connected && p.id !== s.hostId) ? "mp.needTeams" : "mp.needPlayers";
             if (s.canStart) $start.removeAttr("title data-i18n-title");
-            else $start.attr({ "data-i18n-title": "common:mp.needPlayers", title: i18next.t("mp.needPlayers", { ns: "common" }) });
+            else $start.attr({ "data-i18n-title": `common:${key}`, title: i18next.t(key, { ns: "common" }) });
         }
         $("#BUTTON_MP_CANCEL").prop("hidden", !starting);
         // a clicked CANCEL stays locked until the start is off or round 1 runs
         if (!starting) $("#BUTTON_MP_CANCEL").prop("disabled", false);
+        $("#BUTTON_MP_SHUFFLE").prop("hidden", s.phase !== "lobby" || !s.settings.team);
     }
 
     /**
@@ -721,6 +794,7 @@ export default class Multiplayer {
         $("body").removeClass("mp-reveal");
         let mapShown = Promise.resolve();
         if (!resent) {
+            this.teams.clear();
             app.currentGuess = { map: msg.map, url: msg.url, submitter: msg.submitter };
             app.solutionMarker = null;
             if (msg.map) mapShown = app.setupMap();
@@ -734,7 +808,9 @@ export default class Multiplayer {
         $("#round").text(`${msg.index + 1}/${msg.total}`);
         app.INPUT_GUESS.prop({ hidden: false, disabled: this.answered });
         const unsent = app.minimap.guessMarker || app.INPUT_GUESS.val().trim();
-        app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered, disabled: !unsent });
+        // a decision before (Leader) renamed the button
+        app.BUTTON_GUESS.attr("data-i18n", "common:game.buttons.guess").text(i18next.t("game.buttons.guess", { ns: "common" }));
+        app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered || this.isLeading(), disabled: !unsent });
 
         app.switchUI("game");
         app.minimap.invalidateSize();
@@ -743,7 +819,37 @@ export default class Multiplayer {
         this.startCountdown(msg.deadline);
     }
 
+    /**
+     * Leader: the round is over for the players, the leaders pick their team's guess before the reveal. Nobody
+     * guesses any more; a leader who picked already (and reloaded) does not pick again
+     */
+    onDecide(msg) {
+        const app = this.app;
+        this.decideTeams = msg.teams;
+        this.answered = true;
+        const me = this.state.players.find(p => p.id === this.me);
+        const picking = this.isLeading() && !me?.picked && msg.teams.includes(this.myTeam());
+        this.teams.startPicking(picking);
+        app.BUTTON_GUESS.attr("data-i18n", "common:mp.buttons.pick").text(i18next.t("mp.buttons.pick", { ns: "common" }));
+        app.BUTTON_GUESS.prop({ hidden: !picking, disabled: true });
+        this.renderStatus();
+        this.startCountdown(msg.deadline);
+    }
+
+    /**
+     * Leader: sends the selected guess as the team's, also when the time runs out (like an answer)
+     */
+    submitPick() {
+        if (!this.teams.picking || !this.teams.selected) return;
+        this.send({ type: "pick", index: this.roundIndex, playerId: this.teams.selected });
+        this.teams.lock();
+        this.app.BUTTON_GUESS.prop({ hidden: true, disabled: true });
+        this.renderStatus();
+    }
+
     submitAnswer() {
+        // GUESS is PICK while the leaders decide, and the countdown's end sends the selection
+        if (this.state?.phase === "decide") return this.submitPick();
         const app = this.app;
         if (this.answered || this.watching || this.state?.phase !== "round") return;
 
@@ -800,6 +906,8 @@ export default class Multiplayer {
         }
 
         clearInterval(this.countdown);
+        // the reveal shows everyone's guesses as markers of their own
+        this.teams.clear();
         app.stopTimer();
         app.selectedMode = this.state.settings.mode;
         // before any map sizing: on the big screen the reveal gives the map most of the width
@@ -832,33 +940,44 @@ export default class Multiplayer {
         // everyone sees how far off everyone was: the others in pale cyan (red on the big screen), mine red and
         // added last so my tag and line stay on top; the z-index offset does the same for my marker
         const othersStyle = this.watching ? {} : { color: "#33d6ff", opacity: 0.5 };
+        // team play: every line in its team's color
+        const lineStyle = r => (msg.teams ? { color: TEAM_COLORS[r.team], opacity: 0.8 } : othersStyle);
+        // Midpoint and Leader play one point per team: only that point gets a line to the solution
+        const lines = !msg.teams || this.state.settings.team === "average";
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => {
                 this.addPlayerMarker(r);
-                app.drawSolutionDistance(latLng, this.toMap(r), othersStyle);
+                if (lines) app.drawSolutionDistance(latLng, this.toMap(r), lineStyle(r));
             });
         if (mine && mine.lat !== null) {
             const you = { ...mine, name: i18next.t("mp.you", { ns: "common" }) };
             mm.guessMarker = this.addPlayerMarker(you, { iconClass: "mp-own", zIndexOffset: 1000 });
-            app.drawSolutionDistance(latLng);
+            if (lines) app.drawSolutionDistance(latLng);
         }
-        this.focusReveal(latLng, msg.results);
+        (msg.teams ?? []).filter(t => t.lat !== null).forEach(t => {
+            this.teams.addTeamMarker(t);
+            app.drawSolutionDistance(latLng, this.toMap(t), { color: TEAM_COLORS[t.id], opacity: 1 });
+        });
+        this.focusReveal(latLng, [...msg.results, ...(msg.teams ?? [])]);
 
+        // team play: the round counts for the team, so the team's points are the ones shown
+        const points = msg.teams?.find(t => t.id === this.myTeam())?.points ?? mine?.points;
         if (mine) {
             $("#dist").text(mine.distance === null ? "—" : app.formatDistance(mine.distance));
-            $("#points").text(mine.points);
+            $("#points").text(points);
             $("#text").css("visibility", "visible");
         }
         const mapLabel = solution.map.charAt(0).toUpperCase() + solution.map.slice(1);
         if (app.selectedMode === "mapFinder") {
             $("#mapName").text(`${mine ? (mine.points ? "✅ " : "❌ ") : ""}${mapLabel}`).fadeIn();
         } else if (mine) {
-            $("#mapName").text(`${mine.points} ${i18next.t("shared.points", { ns: "common" })}`).fadeIn();
+            $("#mapName").text(`${points} ${i18next.t("shared.points", { ns: "common" })}`).fadeIn();
         }
 
-        // round 1 has no places to leave: everybody started at 0
-        this.renderRanking($("#mpRanking"), msg.results, [], msg.index > 0 ? rankMoves(msg.results) : {});
+        // team play ranks the teams; round 1 has no places to leave: everybody started at 0
+        const rows = msg.teams ? msg.teams.map(t => ({ ...t, team: t.id, name: teamName(t.id) })) : msg.results;
+        this.renderRanking($("#mpRanking"), rows, [], msg.index > 0 ? rankMoves(rows) : {}, msg.teams ? this.myTeam() : this.me);
         $("#mpRanking").prop("hidden", false);
 
         app.INPUT_GUESS.prop("hidden", true);
@@ -897,7 +1016,9 @@ export default class Multiplayer {
     addPlayerMarker(result, options = {}) {
         const mm = this.app.minimap;
         const label = document.createElement("span");
-        label.textContent = `${result.name} +${result.points}`;
+        label.textContent = `${result.name} ${formatPoints(result.points)}`;
+        // team play: the team's color in front of the name
+        if (result.team !== undefined) label.prepend(teamDot(result.team)[0]);
         return new guessMarker(this.toMap(result), { draggable: false, ...options }, mm)
             .addTo(mm.markersGroup)
             .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -45], className: "mpTooltip" });
@@ -913,7 +1034,11 @@ export default class Multiplayer {
     }
 
     finalFromReveal() {
-        const ranking = this.lastReveal.results.map(r => ({ id: r.id, name: r.name, score: r.score }));
+        const { results, teams } = this.lastReveal;
+        // team play ranks the teams, with who played in them
+        const ranking = teams
+            ? teams.map(t => ({ id: t.id, score: t.score, members: this.state.players.filter(p => p.team === t.id).map(p => p.name) }))
+            : results.map(r => ({ id: r.id, name: r.name, score: r.score }));
         const top = ranking[0]?.score;
         this.onFinal({ ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) });
     }
@@ -922,9 +1047,12 @@ export default class Multiplayer {
         clearInterval(this.countdown);
         // no prepare follows the last round, so its preloaded images (and their retries) would outlive the game
         this.preloader.keep([]);
-        this.renderRanking($("#mpFinalRanking"), msg.ranking, msg.winners);
-        const me = msg.ranking.find(r => r.id === this.me);
-        $("#scoreValue").text(me ? me.score : msg.ranking[0]?.score ?? 0);
+        const teamPlay = Boolean(this.state?.settings.team);
+        const rows = teamPlay ? msg.ranking.map(r => ({ ...r, team: r.id, name: teamName(r.id) })) : msg.ranking;
+        const mine = teamPlay ? this.myTeam() : this.me;
+        this.renderRanking($("#mpFinalRanking"), rows, msg.winners, {}, mine);
+        const me = rows.find(r => r.id === mine);
+        $("#scoreValue").text(me ? me.score : rows[0]?.score ?? 0);
         this.app.switchUI("results");
     }
 
@@ -941,26 +1069,37 @@ export default class Multiplayer {
     renderPlayers(s) {
 
         const chip = p => $("<li>")
-            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
+            .text([`${p.id === s.hostId ? "👑 " : ""}${s.settings.team === "leader" && p.leader ? "⭐ " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
             .attr("title", s.phase === "lobby" && p.back === false ? i18next.t("mp.onResults", { ns: "common" }) : null)
             .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
             .toggleClass("me", p.id === this.me);
-        $("#mpChips").empty().append(s.players.map(chip));
+        const teamPlay = Boolean(s.settings.team);
+        // in-game chips: team play shows each player's team in front of the name
+        $("#mpChips").empty().append(s.players.map(p => chip(p).prepend(teamPlay ? teamDot(p.team) : null)));
         // kicking is lobby only, so the in-game chips stay without the button
         const kickable = s.phase === "lobby" && this.isHost();
-        $("#mpPlayers").empty().append(s.players.map(p => {
+        // Leader: in the lobby a leader may hand the role to a teammate who is there
+        const me = s.players.find(p => p.id === this.me);
+        const leadable = p => s.phase === "lobby" && s.settings.team === "leader" && me?.leader && p.team === me.team && p.id !== this.me && p.connected;
+        const item = p => {
             const $li = chip(p);
-            if (!kickable || p.id === this.me) return $li;
             const button = (action, icon, key) => {
                 // set as an attribute, not HTML: the name must not come out escaped
                 const label = i18next.t(key, { ns: "common", name: p.name, interpolation: { escapeValue: false } });
                 return $(`<button class="mp-${action}">`).text(icon).attr({ "data-id": p.id, "data-action": action, "aria-label": label, title: label });
             };
+            if (leadable(p)) $li.append(button("lead", "🎖️", "mp.makeLeader"));
+            if (!kickable || p.id === this.me) return $li;
             // only to someone who is there: the role would move on again at once (see fixHost on the server)
             if (p.connected && p.back !== false) $li.append(button("promote", "🔑", "mp.makeHost"));
             return $li.append(button("kick", "✕", "mp.kick"));
-        }));
+        };
+        // team play: a block per team instead of the one list
+        if (teamPlay) this.teams.renderLobby(s, item);
+        else $("#mpPlayers").empty().append(s.players.map(item));
+        $("#mpPlayers").prop("hidden", teamPlay);
+        $("#mpTeamList").prop("hidden", !teamPlay);
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
         $("#mpRanking li").each((_, li) => {
             const p = s.players.find(x => x.id === li.dataset.id);
@@ -986,7 +1125,7 @@ export default class Multiplayer {
         return p.ready ? "" : "⏳";
     }
 
-    renderRanking($list, rows, winners = [], moves = {}) {
+    renderRanking($list, rows, winners = [], moves = {}, mine = this.me) {
         $list.empty();
         rows.forEach((row, i) => {
             const move = moves[row.id];
@@ -995,13 +1134,16 @@ export default class Multiplayer {
             if (move) $move.addClass(move).attr({ role: "img", "aria-label": i18next.t(`mp.${move}`, { ns: "common" }) });
             $("<li>")
                 .attr("data-id", row.id)
-                .toggleClass("me", row.id === this.me)
+                .toggleClass("me", row.id === mine)
                 .append(
                     $("<span class=\"rank\">").text(winners.includes(row.id) ? "🏆" : `${i + 1}.`),
                     $move,
-                    $("<span class=\"name\">").text(row.name),
-                    $("<span class=\"points\">").text(row.points === undefined ? "" : `+${row.points}`),
-                    $("<span class=\"score\">").text(row.score)
+                    // team play: the team's color in front of its name
+                    $("<span class=\"name\">").text(row.name).prepend(row.team === undefined ? null : teamDot(row.team)),
+                    $("<span class=\"points\">").text(row.points === undefined ? "" : formatPoints(row.points)).toggleClass("negative", row.points < 0),
+                    $("<span class=\"score\">").text(row.score),
+                    // team play's final: who played in the team
+                    row.members ? $("<span class=\"members\">").text(row.members.join(", ")) : null
                 )
                 .appendTo($list);
         });
@@ -1071,14 +1213,17 @@ export default class Multiplayer {
         if (open && matchMedia("(pointer: fine)").matches) $("#mpChatInput").trigger("focus");
     }
 
-    describeSettings({ mode, timer, rounds, next, keepCode }) {
-        const t = (key) => i18next.t(key, { ns: "common" });
+    describeSettings({ mode, timer, rounds, next, keepCode, team, teams, penalty, decide }) {
+        const t = (key, options) => i18next.t(key, { ns: "common", ...options });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
         // a no-break space keeps "10 s" together when the summary wraps
         const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
         const codeLabel = keepCode ? ` · ${t("mp.code")}: ${t("mp.codeKeep")}` : "";
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${codeLabel}`;
+        const penaltyLabel = team === "average" && penalty ? ` · ${t("mp.settings.penalty")}` : "";
+        const decideLabel = team === "leader" ? ` · ${t("mp.settings.decide")} ${decide}\u00a0s` : "";
+        const teamLabel = team ? ` · ${t(`mp.teamModes.${team}`)} · ${t("mp.teamCount", { n: teams })}${penaltyLabel}${decideLabel}` : "";
+        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${codeLabel}${teamLabel}`;
     }
 
     showEntry() {
