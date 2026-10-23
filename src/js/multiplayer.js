@@ -88,7 +88,7 @@ export default class Multiplayer {
         $("#mpTeamList").on("click", ".mp-team-head", (e) => this.send({ type: "team", team: Number(e.currentTarget.dataset.team) }));
         $("#BUTTON_MP_SHUFFLE").on("click", () => this.send({ type: "shuffle" }));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
-        $("#mpPlayers, #mpTeamList").on("click", ".mp-promote, .mp-kick", (e) => {
+        $("#mpPlayers, #mpTeamList").on("click", ".mp-promote, .mp-kick, .mp-lead", (e) => {
             const { id, action } = e.currentTarget.dataset;
             const name = this.state?.players.find(p => p.id === id)?.name;
             // a plain-text dialog: the name must not come out escaped
@@ -151,6 +151,7 @@ export default class Multiplayer {
             team: mode === "classic" ? $("#mpTeam").val() : "off",
             teams: Number($("#mpTeamCount").val()),
             penalty: $("#mpPenalty").val() === "on",
+            decide: Number($("#mpDecide").val()),
         };
     }
 
@@ -505,10 +506,12 @@ export default class Multiplayer {
         $("#mpTeam").val(team);
         $("#mpTeamCount").prop("hidden", team === "off");
         $(".mp-penalty").prop("hidden", team !== "average");
+        $(".mp-decide").prop("hidden", team !== "leader");
         // without teams the settings carry no team fields: the hidden selects keep their last choice for switching back
         if (s.settings.team) {
             $("#mpTeamCount").val(String(s.settings.teams));
             $("#mpPenalty").val(s.settings.penalty ? "on" : "off");
+            $("#mpDecide").val(String(s.settings.decide));
         }
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
@@ -908,7 +911,7 @@ export default class Multiplayer {
     renderPlayers(s) {
 
         const chip = p => $("<li>")
-            .text([`${p.id === s.hostId ? "👑 " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
+            .text([`${p.id === s.hostId ? "👑 " : ""}${s.settings.team === "leader" && p.leader ? "⭐ " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
             .attr("title", s.phase === "lobby" && p.back === false ? i18next.t("mp.onResults", { ns: "common" }) : null)
             .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
@@ -918,14 +921,18 @@ export default class Multiplayer {
         $("#mpChips").empty().append(s.players.map(p => chip(p).prepend(teamPlay ? teamDot(p.team) : null)));
         // kicking is lobby only, so the in-game chips stay without the button
         const kickable = s.phase === "lobby" && this.isHost();
+        // Leader: in the lobby a leader may hand the role to a teammate who is there
+        const me = s.players.find(p => p.id === this.me);
+        const leadable = p => s.phase === "lobby" && s.settings.team === "leader" && me?.leader && p.team === me.team && p.id !== this.me && p.connected;
         const item = p => {
             const $li = chip(p);
-            if (!kickable || p.id === this.me) return $li;
             const button = (action, icon, key) => {
                 // set as an attribute, not HTML: the name must not come out escaped
                 const label = i18next.t(key, { ns: "common", name: p.name, interpolation: { escapeValue: false } });
                 return $(`<button class="mp-${action}">`).text(icon).attr({ "data-id": p.id, "data-action": action, "aria-label": label, title: label });
             };
+            if (leadable(p)) $li.append(button("lead", "🎖️", "mp.makeLeader"));
+            if (!kickable || p.id === this.me) return $li;
             // only to someone who is there: the role would move on again at once (see fixHost on the server)
             if (p.connected && p.back !== false) $li.append(button("promote", "🔑", "mp.makeHost"));
             return $li.append(button("kick", "✕", "mp.kick"));
@@ -984,14 +991,15 @@ export default class Multiplayer {
         });
     }
 
-    describeSettings({ mode, timer, rounds, next, team, teams, penalty }) {
+    describeSettings({ mode, timer, rounds, next, team, teams, penalty, decide }) {
         const t = (key, options) => i18next.t(key, { ns: "common", ...options });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
         // a no-break space keeps "10 s" together when the summary wraps
         const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
         const penaltyLabel = team === "average" && penalty ? ` · ${t("mp.settings.penalty")}` : "";
-        const teamLabel = team ? ` · ${t(`mp.teamModes.${team}`)} · ${t("mp.teamCount", { n: teams })}${penaltyLabel}` : "";
+        const decideLabel = team === "leader" ? ` · ${t("mp.settings.decide")} ${decide}\u00a0s` : "";
+        const teamLabel = team ? ` · ${t(`mp.teamModes.${team}`)} · ${t("mp.teamCount", { n: teams })}${penaltyLabel}${decideLabel}` : "";
         return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${teamLabel}`;
     }
 
