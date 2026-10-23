@@ -53,11 +53,17 @@
     ol {
         margin-top: 0.5em;
         padding-left: 1.5em;
+    }
+    ol, p {
         text-align: left;
         opacity: 0.7;
     }
     li + li {
         margin-top: 0.4em;
+    }
+    // where the ZIP goes: the one link in the guide, it must not fade into the dimmed list
+    a {
+        color: variables.$newColorLight;
     }
 }
 
