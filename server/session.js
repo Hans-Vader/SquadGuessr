@@ -212,6 +212,8 @@ export class Session {
         // new teams: the first player dealt to each leads it
         this.leaders = [];
         this.fixLeaders();
+        // before the state: from it each page tells its player the new team, which was not their own doing
+        this.broadcast({ type: "shuffled" });
         this.broadcastState();
     }
 
