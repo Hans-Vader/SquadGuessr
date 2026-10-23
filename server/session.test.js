@@ -1394,3 +1394,28 @@ test("team play: the state carries the team scores for the score in the corner; 
     const plain = started();
     assert.equal("teamScores" in plain.last(plain.host, "state"), false);
 });
+
+const CENTROID = { ...AVERAGE, team: "centroid" };
+
+test("team play midpoint: a team plays the midpoint of its guesses, scored like any guess", () => {
+    const { s, host, max, ida, last } = teamGame(CENTROID);
+    s.handle(host, { type: "answer", index: 0, lat: -100, lng: 50 });
+    s.handle(ida, { type: "answer", index: 0, lat: -100, lng: 350 });
+    s.handle(max, south(2 * ZONE));
+    // Eve gives no answer: she is left out of her team's midpoint
+    s.handle(host, { type: "endRound" });
+    const reveal = last(host, "reveal");
+    assert.deepEqual(reveal.teams, [
+        { id: 0, points: 100, lat: -100, lng: 200, picked: null, score: 100 },
+        { id: 1, points: 0, lat: -100 - 2 * ZONE, lng: 200, picked: null, score: 0 },
+    ]);
+    // the players' own points are only shown: Hans was 150 m off
+    assert.ok(reveal.results.find(r => r.name === "Hans").points < 100);
+});
+
+test("team play midpoint: a team without a single guess scores 0 and has no point on the map", () => {
+    const { s, host, last } = teamGame(CENTROID);
+    s.handle(host, south(0));
+    s.handle(host, { type: "endRound" });
+    assert.deepEqual(last(host, "reveal").teams.find(t => t.id === 1), { id: 1, points: 0, lat: null, lng: null, picked: null, score: 0 });
+});

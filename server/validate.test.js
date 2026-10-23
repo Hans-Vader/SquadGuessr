@@ -99,3 +99,8 @@ test("validAnswer per mode", () => {
     assert.equal(validAnswer({ mapName: "x".repeat(41) }, "mapFinder"), false);
     assert.equal(validAnswer({ lat: 1, lng: 2 }, "mapFinder"), false);
 });
+
+test("validSettings: team play also takes Midpoint", () => {
+    assert.equal(validSettings({ mode: "classic", timer: 0, rounds: 5, team: "centroid", teams: 3, penalty: false }), true);
+    assert.equal(validSettings({ mode: "mapFinder", timer: 0, rounds: 5, team: "centroid", teams: 3, penalty: false }), false);
+});
