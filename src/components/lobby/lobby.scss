@@ -708,3 +708,70 @@ body.watch-mode.mp-reveal {
 body.watch-mode .mp-team-point {
     transform: scale(1.33);
 }
+
+// teammates' guesses (team play): a dot in the team's color. While the leader picks, a dot answers the pointer and the
+// keyboard, and the selected one stands out with a check mark while the others step back
+
+.mp-mate-icon:focus-visible {
+    // the dot's own focus look below says it
+    outline: none;
+}
+
+.mp-mate {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: var(--team);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 15px;
+    font-weight: bold;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+    transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
+    // game.scss gives every marker icon the grab cursor of the draggable guess marker
+    &.picking {
+        cursor: pointer;
+    }
+    &.picking:not(.selected):hover,
+    .mp-mate-icon:focus-visible &.picking:not(.selected) {
+        // a white halo: the team's color may be any of ten, white stands out on all of them
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 0 5px rgba(255, 255, 255, 0.5);
+        opacity: 1;
+        transform: scale(1.4);
+    }
+    &.selected {
+        border-width: 4px;
+        box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.7), 0 0 0 7px var(--team), 0 4px 10px rgba(0, 0, 0, 0.6);
+    }
+    // only when it is clicked, not again when the pick is sent
+    &.selected.picking {
+        animation: mp-mate-pick 0.18s ease-out;
+    }
+    &.dimmed {
+        opacity: 0.5;
+    }
+    // a light team color (yellow, white, lime) gets a dark check mark
+    &.light {
+        color: #111;
+        text-shadow: none;
+    }
+}
+
+@keyframes mp-mate-pick {
+    from {
+        transform: scale(0.6);
+    }
+}
+
+.leaflet-tooltip.mp-mate-tip {
+    &.hover,
+    &.selected {
+        // in front of the other names, which may overlap it
+        z-index: 1;
+        font-weight: bold;
+    }
+}

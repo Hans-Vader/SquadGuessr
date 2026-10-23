@@ -1,5 +1,5 @@
 import i18next from "i18next";
-import { CircleMarker, DivIcon, LayerGroup, Marker } from "leaflet";
+import { DivIcon, LayerGroup, Marker } from "leaflet";
 
 // one color per team, in team order: mp.teamNames names them the same way. No red, blue or green: the own pin is red,
 // the others' pins are blue and the solution is green
@@ -76,7 +76,8 @@ export class Teams {
     }
 
     /**
-     * A dot in the team's color per teammate; the own guess is the player's marker already
+     * A dot in the team's color per teammate; the own guess is the player's marker already. While the leader picks, a
+     * dot answers the pointer and the keyboard (Tab, Enter), and the selected one stands out (lobby.scss)
      */
     draw() {
         const mp = this.mp;
@@ -85,22 +86,43 @@ export class Teams {
         // a leader who picks sees their own guess as a choice too (they may have guessed before they led)
         this.guesses.filter(g => this.picking || g.id !== mp.me).forEach(g => {
             const selected = g.id === this.selected;
+            const dot = document.createElement("div");
+            dot.className = "mp-mate";
+            dot.classList.toggle("light", isLight(color));
+            dot.classList.toggle("picking", this.picking);
+            dot.classList.toggle("selected", selected);
+            // once one is selected the others step back
+            dot.classList.toggle("dimmed", Boolean(this.selected) && !selected);
+            dot.style.setProperty("--team", color);
+            dot.textContent = selected ? "✓" : "";
             // an element, not a string: Leaflet would put a string in as HTML, and a name must never become HTML
             const label = document.createElement("span");
-            label.textContent = g.name;
-            const marker = new CircleMarker(mp.toMap(g), {
-                radius: selected ? 13 : 8,
-                color: selected ? "#ff4d4d" : "#fff",
-                weight: selected ? 4 : 2,
-                fillColor: color,
-                fillOpacity: 1,
-                // a click on a guess must not also reach the map
-                bubblingMouseEvents: false,
-            })
-                .bindTooltip(label, { permanent: true, direction: "top", offset: [0, selected ? -13 : -8], className: "mpTooltip" })
+            label.textContent = selected ? `✓ ${g.name}` : g.name;
+            const size = selected ? 28 : 18;
+            // own class: Leaflet's default one would put a white box behind it
+            const icon = new DivIcon({ html: dot, className: "mp-mate-icon", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+            const marker = new Marker(mp.toMap(g), { icon, interactive: this.picking, keyboard: this.picking, riseOnHover: true, zIndexOffset: selected ? 1500 : 0 })
+                .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -size / 2 - 2], className: `mpTooltip mp-mate-tip${selected ? " selected" : ""}` })
                 .addTo(this.layer);
-            if (this.picking) marker.on("click", () => this.select(g.id));
+            if (!this.picking) return;
+            marker.on("click", () => this.select(g.id));
+            // pointer and keyboard focus lift the name too: it lives in another pane, out of reach of the dot's CSS.
+            // Leaflet 2 knows pointer events only, no mouseover
+            const lift = on => marker.getTooltip()?.getElement()?.classList.toggle("hover", on);
+            marker.on("pointerover", () => lift(true)).on("pointerout", () => lift(false));
+            const el = marker.getElement();
+            el.addEventListener("focus", () => lift(true));
+            el.addEventListener("blur", () => lift(false));
+            // Leaflet 2 no longer clicks a focused marker on Enter; Space stays the page's shortcut for PICK
+            el.addEventListener("keydown", (e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                this.select(g.id, true);
+            });
+            // the redraw replaced the element the keyboard was on
+            if (g.id === this.refocus) el.focus({ preventScroll: true });
         });
+        this.refocus = null;
     }
 
     /**
@@ -112,8 +134,12 @@ export class Teams {
         this.draw();
     }
 
-    select(id) {
+    /**
+     * By keyboard (`refocus`) the focus stays on the selected dot, so Space (PICK) or Tab goes on from there
+     */
+    select(id, refocus = false) {
         this.selected = id;
+        this.refocus = refocus ? id : null;
         this.draw();
         this.mp.app.BUTTON_GUESS.prop("disabled", false);
     }
