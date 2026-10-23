@@ -72,10 +72,12 @@
             "next": "Next round",
             "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up.",
             "team": "Teams",
-            "teamHint": "Play in teams. Average: everyone guesses, a team scores the average of its players. Midpoint: everyone guesses, a team plays the midpoint of its guesses.",
+            "teamHint": "Play in teams. Average: everyone guesses, a team scores the average of its players. Midpoint: everyone guesses, a team plays the midpoint of its guesses. Leader: the members guess, the leader picks one of their guesses for the team.",
             "teams": "Number of teams",
             "penalty": "Minus points",
-            "penaltyHint": "Guesses that would score nothing cost up to 50 points (the further off, the more), and so does giving no answer."
+            "penaltyHint": "Guesses that would score nothing cost up to 50 points (the further off, the more), and so does giving no answer.",
+            "decide": "Decision time",
+            "decideHint": "How long the leaders have after the round to pick one of their team guesses."
         },
         "gameRunning": "This game has already started. You can still watch it.",
         "reconnecting": "Reconnecting…",
@@ -94,7 +96,8 @@
         "noLongerHost": "You are no longer the host",
         "confirm": {
             "kick": "Remove {{name}} from the session?",
-            "promote": "Make {{name}} the host? You will be a regular player then."
+            "promote": "Make {{name}} the host? You will be a regular player then.",
+            "lead": "Make {{name}} the leader of your team? You will guess yourself then."
         },
         "confirmLeave": "Leave the lobby? You will need the code to come back.",
         "left": "{{name}} left the lobby",
@@ -133,7 +136,8 @@
         "teamModes": {
             "off": "Off",
             "average": "Average",
-            "centroid": "Midpoint"
+            "centroid": "Midpoint",
+            "leader": "Leader"
         },
         "on": "On",
         "off": "Off",
@@ -151,7 +155,8 @@
             "8": "White",
             "9": "Brown"
         },
-        "needTeams": "At least two teams need players"
+        "needTeams": "At least two teams need players, and in Leader mode two in every team",
+        "makeLeader": "Make {{name}} leader"
     },
     "submit": {
         "open": "SUBMIT A GUESS",
