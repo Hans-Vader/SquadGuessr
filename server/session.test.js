@@ -1274,3 +1274,38 @@ test("team play: START needs players in two teams at least", () => {
     s.handle(eve, { type: "team", team: 1 });
     assert.equal(last(host, "state").canStart, true);
 });
+
+// an answer for round 1 that lies `d` meters straight south of its solution (Narva, lat -100, lng 200)
+const south = (d) => ({ type: "answer", index: 0, lat: -100 - d, lng: 200 });
+// on Narva: the last scoring step, beyond which a guess scores 0
+const ZONE = 500 * mapSize("Narva") / 3000;
+
+test("team play: a player sees their team's guesses once they answered, positions only; other teams and watchers never", () => {
+    const { s, host, max, ida, eve, all, last } = teamGame();
+    const tv = {};
+    s.watch(tv);
+    s.handle(host, south(0));
+    const hans = last(host, "welcome").playerId;
+    assert.deepEqual(last(host, "teamGuesses"), { type: "teamGuesses", index: 0, guesses: [{ id: hans, name: "Hans", lat: -100, lng: 200 }] });
+    assert.deepEqual([all(ida, "teamGuesses"), all(max, "teamGuesses"), all(eve, "teamGuesses"), all(tv, "teamGuesses")], [[], [], [], []]);
+    s.handle(ida, south(100));
+    assert.deepEqual(last(host, "teamGuesses").guesses.map(g => g.name), ["Hans", "Ida"]);
+    assert.deepEqual(last(ida, "teamGuesses").guesses.map(g => g.name), ["Hans", "Ida"]);
+    assert.deepEqual([all(max, "teamGuesses"), all(eve, "teamGuesses"), all(tv, "teamGuesses")], [[], [], []]);
+});
+
+test("team play: without teams nobody gets team guesses", () => {
+    const { s, host, guest, all } = started();
+    s.handle(host, { type: "answer", index: 0, lat: -100, lng: 200 });
+    assert.deepEqual([all(host, "teamGuesses"), all(guest, "teamGuesses")], [[], []]);
+});
+
+test("team play: a player who reconnects during the round gets their team's guesses again", () => {
+    const { s, host, ida, last } = teamGame();
+    s.handle(host, south(0));
+    s.handle(ida, south(100));
+    s.disconnect(ida);
+    const phone = {};
+    s.join(phone, { token: last(ida, "welcome").token });
+    assert.deepEqual(last(phone, "teamGuesses").guesses.map(g => g.name), ["Hans", "Ida"]);
+});
