@@ -791,18 +791,24 @@ export default class Multiplayer {
         const othersStyle = this.watching ? {} : { color: "#33d6ff", opacity: 0.5 };
         // team play: every line in its team's color
         const lineStyle = r => (msg.teams ? { color: TEAM_COLORS[r.team], opacity: 0.8 } : othersStyle);
+        // Midpoint and Leader play one point per team: only that point gets a line to the solution
+        const lines = !msg.teams || this.state.settings.team === "average";
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => {
                 this.addPlayerMarker(r);
-                app.drawSolutionDistance(latLng, this.toMap(r), lineStyle(r));
+                if (lines) app.drawSolutionDistance(latLng, this.toMap(r), lineStyle(r));
             });
         if (mine && mine.lat !== null) {
             const you = { ...mine, name: i18next.t("mp.you", { ns: "common" }) };
             mm.guessMarker = this.addPlayerMarker(you, { iconClass: "mp-own", zIndexOffset: 1000 });
-            app.drawSolutionDistance(latLng);
+            if (lines) app.drawSolutionDistance(latLng);
         }
-        this.focusReveal(latLng, msg.results);
+        (msg.teams ?? []).filter(t => t.lat !== null).forEach(t => {
+            this.teams.addTeamMarker(t);
+            app.drawSolutionDistance(latLng, this.toMap(t), { color: TEAM_COLORS[t.id], opacity: 1 });
+        });
+        this.focusReveal(latLng, [...msg.results, ...(msg.teams ?? [])]);
 
         // team play: the round counts for the team, so the team's points are the ones shown
         const points = msg.teams?.find(t => t.id === this.myTeam())?.points ?? mine?.points;
