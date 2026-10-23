@@ -250,7 +250,7 @@ export function centroid(points) { … }
 ### Neues Modul `src/js/multiplayerTeams.js`
 
 `multiplayer.js` hat schon rund 960 Zeilen. Der Team-Teil kommt deshalb in ein eigenes Modul, das `multiplayer.js` aufruft:
-- Teamfarben und Teamnamen über i18n: Blau, Rot, Grün, Gelb, Lila, Orange, Türkis, Pink, Weiß und Braun,
+- Teamfarben und Teamnamen über i18n: Gelb, Lila, Orange, Türkis, Pink, Schwarz (Anthrazit), Weiß, Braun, Limette und Grau. Kein Rot, Blau oder Grün: Der eigene Pin ist rot, die anderen Pins sind blau und die Lösung ist grün. Auf hellen Teamfarben ist die Flagge im Team-Marker dunkel,
 - die Team-Blöcke in der Lobby,
 - die Team-Marker während `round` und `decide` sowie die Auswahl durch den Leader,
 - die Team-Marker und die Team-Rangliste im Reveal,
@@ -303,7 +303,7 @@ export function centroid(points) { … }
   - Der eigene Marker bleibt hervorgehoben.
 - **Team-Marker** bei `centroid` und `leader`, sofern `lat !== null`:
   - größer als die Spieler-Marker,
-  - beschriftet mit „Team Blau +60“,
+  - beschriftet mit „Team Gelb +60“,
   - mit Distanzlinie zur Lösung.
 - **Distanzlinien:**
   - Bei `sum` bekommt jeder Spieler eine Linie, wie heute.
