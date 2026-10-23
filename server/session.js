@@ -341,6 +341,7 @@ export class Session {
             : { lat: null, lng: null, mapName: msg.mapName };
         player.answers[this.round] = { ...answer, ...scoreAnswer(this.settings.mode, this.guesses[this.round], answer) };
         this.broadcastState();
+        this.sendTeamGuesses(player.team);
         this.checkRoundEnd();
     }
 
@@ -524,7 +525,41 @@ export class Session {
         return { type: "final", ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) };
     }
 
+    /**
+     * Shows a team its own guesses of the running round, to whoever of it may see them (seesTeam): positions only,
+     * since points or a distance would give the solution away. Never to other teams or watchers
+     */
+    sendTeamGuesses(team) {
+        if (!this.settings.team || this.phase !== "round") return;
+        const members = this.members(team);
+        const guesses = members.filter(p => this.guessOf(p)).map(p => ({ id: p.id, name: p.name, lat: p.answers[this.round].lat, lng: p.answers[this.round].lng }));
+        const msg = { type: "teamGuesses", index: this.round, guesses };
+        members.filter(p => p.conn && this.seesTeam(p)).forEach(p => this.send(p.conn, msg));
+    }
+
+    /**
+     * Who of a team sees its guesses: whoever answered already, so nobody copies
+     */
+    seesTeam(p) {
+        return Boolean(p.answers[this.round]);
+    }
+
     // ===== HELPERS =====
+
+    /**
+     * A player's guess on the map this round, null without one (no answer yet, none in time)
+     */
+    guessOf(p) {
+        const answer = p.answers[this.round];
+        return answer && answer.lat !== null ? answer : null;
+    }
+
+    /**
+     * A team's players, in the order they joined
+     */
+    members(team) {
+        return [...this.players.values()].filter(p => p.team === team);
+    }
 
     /**
      * Players per team (index = team), counting only those `counted` accepts. Without team play there are 2 teams:
@@ -564,6 +599,7 @@ export class Session {
         this.welcome(player);
         this.broadcastState();
         this.sendPhase(conn);
+        this.sendTeamGuesses(player.team);
         return true;
     }
 
