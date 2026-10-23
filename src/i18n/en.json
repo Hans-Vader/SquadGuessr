@@ -156,7 +156,7 @@
             "8": "White",
             "9": "Brown"
         },
-        "needTeams": "At least two teams need players, and in Leader mode two in every team",
+        "needTeams": "At least two teams need players, and in Leader mode three in every team",
         "makeLeader": "Make {{name}} leader",
         "teamGuessing": "Your team is guessing ({{answered}}/{{total}})",
         "pickGuess": "Pick the guess for your team",

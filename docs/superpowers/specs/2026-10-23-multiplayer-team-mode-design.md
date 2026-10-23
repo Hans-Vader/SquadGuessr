@@ -149,7 +149,7 @@ Das Spiel darf sich deshalb nicht auf Voice verlassen. Abstimmen kann sich ein T
 
 - **`canStart()`:** Im Team-Modus gilt zusätzlich:
   - Mindestens 2 Teams haben verbundene Spieler.
-  - Bei `leader` hat jedes Team mit verbundenen Spielern mindestens 2 davon.
+  - Bei `leader` hat jedes Team mit verbundenen Spielern mindestens 3 davon, also den Leader und 2 Mitglieder. Mit nur einem Mitglied hätte der Leader keine Wahl. Schrumpft ein Team im Spiel, läuft es weiter.
 - `resetScores()` setzt auch `teamScores` zurück. Teams und Leader bleiben über `cancelStart` und `toLobby` hinweg bestehen.
 
 ### Runde
@@ -362,7 +362,7 @@ export function centroid(points) { … }
     - der Erste im Team wird Leader,
     - Übergabe mit `lead`, wobei ein fremdes Team `INVALID` ergibt,
     - Nachfolge bei Leave und bei Abwesenheit über `tick()`.
-  - **`canStart`:** nur 1 besetztes Team; Leader-Modus mit einem Ein-Mann-Team.
+  - **`canStart`:** nur 1 besetztes Team; Leader-Modus mit einem Team aus nur 2 Spielern.
   - **`teamGuesses`:**
     - nur an Teammitglieder mit Abgabe und an den Leader,
     - in `decide` an das ganze Team,
