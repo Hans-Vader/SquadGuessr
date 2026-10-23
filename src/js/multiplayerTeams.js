@@ -36,6 +36,9 @@ export class Teams {
         // teammates' guesses during a round: a layer of their own, so a new round or the reveal clears exactly these
         this.layer = new LayerGroup();
         this.guesses = [];
+        // Leader: while the leader decides, a click on a teammate's guess selects it (selected), PICK sends it
+        this.picking = false;
+        this.selected = null;
     }
 
     /**
@@ -70,18 +73,54 @@ export class Teams {
         const mp = this.mp;
         const color = TEAM_COLORS[mp.myTeam()];
         this.layer.clearLayers().addTo(mp.app.minimap);
-        this.guesses.filter(g => g.id !== mp.me).forEach(g => {
+        // a leader who picks sees their own guess as a choice too (they may have guessed before they led)
+        this.guesses.filter(g => this.picking || g.id !== mp.me).forEach(g => {
+            const selected = g.id === this.selected;
             // an element, not a string: Leaflet would put a string in as HTML, and a name must never become HTML
             const label = document.createElement("span");
             label.textContent = g.name;
-            new CircleMarker(mp.toMap(g), { radius: 8, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1 })
-                .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -8], className: "mpTooltip" })
+            const marker = new CircleMarker(mp.toMap(g), {
+                radius: selected ? 13 : 8,
+                color: selected ? "#ff4d4d" : "#fff",
+                weight: selected ? 4 : 2,
+                fillColor: color,
+                fillOpacity: 1,
+                // a click on a guess must not also reach the map
+                bubblingMouseEvents: false,
+            })
+                .bindTooltip(label, { permanent: true, direction: "top", offset: [0, selected ? -13 : -8], className: "mpTooltip" })
                 .addTo(this.layer);
+            if (this.picking) marker.on("click", () => this.select(g.id));
         });
+    }
+
+    /**
+     * Leader: whether this leader picks now; a new decision starts with nothing selected
+     */
+    startPicking(on) {
+        this.picking = on;
+        this.selected = null;
+        this.draw();
+    }
+
+    select(id) {
+        this.selected = id;
+        this.draw();
+        this.mp.app.BUTTON_GUESS.prop("disabled", false);
+    }
+
+    /**
+     * The pick is sent: the selection stays on the map, nothing can be clicked any more
+     */
+    lock() {
+        this.picking = false;
+        this.draw();
     }
 
     clear() {
         this.guesses = [];
+        this.picking = false;
+        this.selected = null;
         this.layer.clearLayers();
     }
 
