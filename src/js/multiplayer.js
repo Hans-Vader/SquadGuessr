@@ -417,6 +417,9 @@ export default class Multiplayer {
         case "teamGuesses":
             this.teams.showGuesses(msg);
             break;
+        case "decide":
+            this.onDecide(msg);
+            break;
         case "left":
             this.toast("info", "mp.left", { name: msg.name });
             break;
@@ -484,6 +487,20 @@ export default class Multiplayer {
      */
     myTeam() {
         return this.state?.players.find(p => p.id === this.me)?.team;
+    }
+
+    /**
+     * Leader: this player leads their team, so guesses nothing and picks the team's guess instead
+     */
+    isLeading() {
+        return this.state?.settings.team === "leader" && Boolean(this.state.players.find(p => p.id === this.me)?.leader);
+    }
+
+    /**
+     * May this player place a guess marker now: not as a leader, and not while the leaders decide
+     */
+    mayGuess() {
+        return this.state?.phase !== "decide" && !this.isLeading();
     }
 
     renderState() {
@@ -586,6 +603,20 @@ export default class Multiplayer {
             $("#mpStatus").prop("hidden", false);
         } else if (s.phase === "reveal") {
             $("#mpStatus").text(i18next.t("mp.waitingForHost", { ns: "common" })).prop("hidden", host || (last && !this.watching));
+        }
+        if (s.phase === "decide") {
+            const picked = s.players.filter(p => p.picked).length;
+            const text = this.teams.picking
+                ? i18next.t("mp.pickGuess", { ns: "common" })
+                : i18next.t("mp.leadersDeciding", { ns: "common", picked, total: this.decideTeams?.length ?? 0 });
+            $("#mpStatus").text(text).prop("hidden", false);
+            return;
+        }
+        // Leader: the leader waits for the team, and sees how far it is
+        if (s.phase === "round" && this.isLeading()) {
+            const team = s.players.filter(p => p.connected && p.team === this.myTeam() && p.id !== this.me);
+            $("#mpStatus").text(i18next.t("mp.teamGuessing", { ns: "common", answered: team.filter(p => p.answered).length, total: team.length })).prop("hidden", false);
+            return;
         }
         if (s.phase !== "round") return;
         const online = s.players.filter(p => p.connected);
@@ -698,7 +729,9 @@ export default class Multiplayer {
         $("#round").text(`${msg.index + 1}/${msg.total}`);
         app.INPUT_GUESS.prop({ hidden: false, disabled: this.answered });
         const unsent = app.minimap.guessMarker || app.INPUT_GUESS.val().trim();
-        app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered, disabled: !unsent });
+        // a decision before (Leader) renamed the button
+        app.BUTTON_GUESS.attr("data-i18n", "common:game.buttons.guess").text(i18next.t("game.buttons.guess", { ns: "common" }));
+        app.BUTTON_GUESS.prop({ hidden: this.watching || this.answered || this.isLeading(), disabled: !unsent });
 
         app.switchUI("game");
         app.minimap.invalidateSize();
@@ -707,7 +740,37 @@ export default class Multiplayer {
         this.startCountdown(msg.deadline);
     }
 
+    /**
+     * Leader: the round is over for the players, the leaders pick their team's guess before the reveal. Nobody
+     * guesses any more; a leader who picked already (and reloaded) does not pick again
+     */
+    onDecide(msg) {
+        const app = this.app;
+        this.decideTeams = msg.teams;
+        this.answered = true;
+        const me = this.state.players.find(p => p.id === this.me);
+        const picking = this.isLeading() && !me?.picked && msg.teams.includes(this.myTeam());
+        this.teams.startPicking(picking);
+        app.BUTTON_GUESS.attr("data-i18n", "common:mp.buttons.pick").text(i18next.t("mp.buttons.pick", { ns: "common" }));
+        app.BUTTON_GUESS.prop({ hidden: !picking, disabled: true });
+        this.renderStatus();
+        this.startCountdown(msg.deadline);
+    }
+
+    /**
+     * Leader: sends the selected guess as the team's, also when the time runs out (like an answer)
+     */
+    submitPick() {
+        if (!this.teams.picking || !this.teams.selected) return;
+        this.send({ type: "pick", index: this.roundIndex, playerId: this.teams.selected });
+        this.teams.lock();
+        this.app.BUTTON_GUESS.prop({ hidden: true, disabled: true });
+        this.renderStatus();
+    }
+
     submitAnswer() {
+        // GUESS is PICK while the leaders decide, and the countdown's end sends the selection
+        if (this.state?.phase === "decide") return this.submitPick();
         const app = this.app;
         if (this.answered || this.watching || this.state?.phase !== "round") return;
 

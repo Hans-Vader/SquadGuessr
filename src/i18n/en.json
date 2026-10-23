@@ -117,7 +117,8 @@
             "endRound": "END ROUND",
             "watch": "WATCH",
             "rejoin": "REJOIN",
-            "shuffle": "SHUFFLE"
+            "shuffle": "SHUFFLE",
+            "pick": "PICK"
         },
         "errors": {
             "SESSION_NOT_FOUND": "Session not found",
@@ -156,7 +157,10 @@
             "9": "Brown"
         },
         "needTeams": "At least two teams need players, and in Leader mode two in every team",
-        "makeLeader": "Make {{name}} leader"
+        "makeLeader": "Make {{name}} leader",
+        "teamGuessing": "Your team is guessing ({{answered}}/{{total}})",
+        "pickGuess": "Pick the guess for your team",
+        "leadersDeciding": "Leaders are deciding ({{picked}}/{{total}})"
     },
     "submit": {
         "open": "SUBMIT A GUESS",

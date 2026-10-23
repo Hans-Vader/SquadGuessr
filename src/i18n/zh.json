@@ -117,7 +117,8 @@
             "endRound": "结束回合",
             "watch": "观看",
             "rejoin": "重新加入",
-            "shuffle": "随机分队"
+            "shuffle": "随机分队",
+            "pick": "选择"
         },
         "errors": {
             "SESSION_NOT_FOUND": "未找到该房间",
@@ -156,7 +157,10 @@
             "9": "棕"
         },
         "needTeams": "至少需要两支有玩家的队伍；队长模式下每队至少两人",
-        "makeLeader": "让 {{name}} 担任队长"
+        "makeLeader": "让 {{name}} 担任队长",
+        "teamGuessing": "队员正在猜测（{{answered}}/{{total}}）",
+        "pickGuess": "为你的队伍选择一个猜测",
+        "leadersDeciding": "队长正在决定（{{picked}}/{{total}}）"
     },
     "submit": {
         "open": "提交截图",
