@@ -90,6 +90,14 @@ export function distance(a, b) {
     return Math.hypot(a.lat - b.lat, a.lng - b.lng);
 }
 
+/**
+ * The plain average position of some guesses, in game coordinates
+ */
+export function centroid(points) {
+    const mean = key => points.reduce((sum, p) => sum + p[key], 0) / points.length;
+    return { lat: mean("lat"), lng: mean("lng") };
+}
+
 export function mapSize(mapName) {
     const map = findMap(mapName);
     if (map && map.size === undefined) initMapsProperties();

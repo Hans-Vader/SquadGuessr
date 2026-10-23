@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pointsForDistance, levenshtein, mapNameMatches, distance, mapSize, scoreAnswer, rankMoves, penaltyPoints, MAX_PENALTY } from "../src/js/scoring.js";
+import { pointsForDistance, levenshtein, mapNameMatches, distance, mapSize, scoreAnswer, rankMoves, penaltyPoints, MAX_PENALTY, centroid } from "../src/js/scoring.js";
 import { MAPS, initMapsProperties } from "../src/js/data/maps.js";
 
 test("pointsForDistance on a 3000m map", () => {
@@ -105,4 +105,9 @@ test("penaltyPoints: 0 up to the last scoring step, then down to −50 at three 
     // the step scales with the map like the points do
     assert.equal(penaltyPoints(2000, 6000), -25);
     assert.equal(MAX_PENALTY, 50);
+});
+
+test("centroid is the plain average position", () => {
+    assert.deepEqual(centroid([{ lat: -100, lng: 50 }]), { lat: -100, lng: 50 });
+    assert.deepEqual(centroid([{ lat: 0, lng: 0 }, { lat: -100, lng: 300 }, { lat: -200, lng: 0 }]), { lat: -100, lng: 100 });
 });

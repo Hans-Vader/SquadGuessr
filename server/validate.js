@@ -9,7 +9,7 @@ const TIMERS = [0, ...SECONDS, 60];
 const NEXTS = [0, ...SECONDS];
 const ROUNDS = [3, 5, 10];
 // team play: "off" is everyone for themselves
-const TEAM_MODES = ["off", "average"];
+const TEAM_MODES = ["off", "average", "centroid"];
 const MAX_TEAMS = 10;
 // any plain file name under /img/ (real ones look like "Screenshot (301).webp"): a rejected name fails START for the
 // whole game. Kept out is only what could leave the double-quoted HTML attribute the url ends up in or the path

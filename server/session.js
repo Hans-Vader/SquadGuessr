@@ -1,5 +1,5 @@
 import { randomUUID, randomInt } from "node:crypto";
-import { scoreAnswer, mapSize, penaltyPoints, MAX_PENALTY } from "../src/js/scoring.js";
+import { scoreAnswer, mapSize, penaltyPoints, MAX_PENALTY, centroid } from "../src/js/scoring.js";
 import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.js";
 
 export const MAX_PLAYERS = 30;
@@ -404,12 +404,26 @@ export class Session {
      * A team's result this round: its points, and the point it played (none in Average)
      */
     teamResult(team) {
-        // whoever is gone for good does not drag the team down; whoever is there and gave no answer does
-        const counted = this.members(team).filter(p => this.guessOf(p) || this.isPresent(p));
-        const sum = counted.reduce((total, p) => total + p.answers[this.round].points, 0);
-        // || 0: an average just below 0 would round to -0
-        const points = counted.length ? Math.round(sum / counted.length) || 0 : 0;
-        return { id: team, points, lat: null, lng: null, picked: null };
+        const members = this.members(team);
+        if (this.settings.team === "average") {
+            // whoever is gone for good does not drag the team down; whoever is there and gave no answer does
+            const counted = members.filter(p => this.guessOf(p) || this.isPresent(p));
+            const sum = counted.reduce((total, p) => total + p.answers[this.round].points, 0);
+            // || 0: an average just below 0 would round to -0
+            const points = counted.length ? Math.round(sum / counted.length) || 0 : 0;
+            return { id: team, points, lat: null, lng: null, picked: null };
+        }
+        const at = this.teamPoint(members);
+        const points = at ? scoreAnswer("classic", this.guesses[this.round], at).points : 0;
+        return { id: team, points, lat: at?.lat ?? null, lng: at?.lng ?? null, picked: null };
+    }
+
+    /**
+     * The point a team plays: the midpoint of its guesses, null without one
+     */
+    teamPoint(members) {
+        const guesses = members.map(p => this.guessOf(p)).filter(Boolean);
+        return guesses.length ? centroid(guesses) : null;
     }
 
     next(conn) {
