@@ -84,4 +84,16 @@ export class Teams {
         this.guesses = [];
         this.layer.clearLayers();
     }
+
+    /**
+     * The point a team played at the reveal (Midpoint, Leader): bigger than a player's, with the team's name and points
+     */
+    addTeamMarker(t) {
+        const mm = this.mp.app.minimap;
+        const label = document.createElement("span");
+        label.textContent = `${teamName(t.id)} ${formatPoints(t.points)}`;
+        return new CircleMarker(this.mp.toMap(t), { radius: 13, color: "#fff", weight: 3, fillColor: TEAM_COLORS[t.id], fillOpacity: 1 })
+            .addTo(mm.markersGroup)
+            .bindTooltip(label, { permanent: true, direction: "top", offset: [0, -13], className: "mpTooltip" });
+    }
 }
