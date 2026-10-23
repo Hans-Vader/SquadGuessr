@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { scoreAnswer, mapSize } from "../src/js/scoring.js";
+import { randomUUID, randomInt } from "node:crypto";
+import { scoreAnswer, mapSize, penaltyPoints, MAX_PENALTY, centroid } from "../src/js/scoring.js";
 import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.js";
 
-export const MAX_PLAYERS = 12;
+export const MAX_PLAYERS = 30;
 export const MAX_WATCHERS = 20;
 export const GRACE_MS = 1000;
 export const RECONNECT_MS = 30 * 1000;
@@ -15,7 +15,7 @@ export const COUNTDOWN_FORCED_MS = 15 * 1000;
 // how long players back in the lobby wait for a host still on the results before one of them takes over
 export const HANDOVER_MS = 30 * 1000;
 
-const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "kick", "promote"];
+const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "kick", "promote", "shuffle"];
 
 /**
  * One multiplayer session: lobby → loading → round → reveal → loading → … → final
@@ -41,6 +41,13 @@ export class Session {
         this.players = new Map();
         this.watchers = new Set();
         this.kicked = new Set();
+        // team play: the score per team (index = team), and every round's team results (index = round)
+        this.teamScores = [];
+        this.teamRounds = [];
+        // team play: who leads each team (index = team), kept for every variant; only Leader gives it a meaning
+        this.leaders = [];
+        // Leader: the guess each team's leader picked this round (index = team)
+        this.picks = [];
         this.lastActivity = now();
     }
 
@@ -52,6 +59,7 @@ export class Session {
         this.settings = pickSettings(settings);
         const player = this.addPlayer(conn, clean);
         this.hostId = player.id;
+        this.fixLeaders();
         this.welcome(player);
         this.broadcastState();
         return true;
@@ -66,12 +74,17 @@ export class Session {
         if (!clean) return this.error(conn, "INVALID");
         const same = this.findPlayer(p => p.name.toLowerCase() === clean.toLowerCase());
         if (same?.connected) return this.error(conn, "NAME_TAKEN");
+        // Sum: from START on nobody new joins, a team would grow; who takes their own place back (below) keeps it even
+        if (this.phase !== "lobby" && this.settings.team === "sum" && !same) return this.error(conn, "GAME_RUNNING");
         // someone who dropped out of the lobby may come back without their token (other device, other tab): same name, their place
         if (same) this.players.delete(same.id);
         if (this.players.size >= MAX_PLAYERS) return this.error(conn, "SESSION_FULL");
         const player = this.addPlayer(conn, clean);
         this.freshWait();
         if (same?.id === this.hostId) this.hostId = player.id;
+        // their place includes their team
+        if (same) Object.assign(player, { team: same.team, teamSince: same.teamSince });
+        this.fixLeaders();
         this.welcome(player);
         this.broadcastState();
         // joined during the countdown: round 1's images to load
@@ -119,6 +132,9 @@ export class Session {
         if (msg.type === "answer") return this.answer(player, msg);
         if (msg.type === "ready") return this.ready(player, msg.index);
         if (msg.type === "lobbyReady") return this.lobbyReady(player, msg.ready);
+        if (msg.type === "team") return this.switchTeam(player, msg.team);
+        if (msg.type === "lead") return this.lead(player, msg.playerId);
+        if (msg.type === "pick") return this.pick(player, msg);
         if (msg.type === "leave") return this.leave(player);
         // after a game everyone leaves their results on their own
         if (msg.type === "lobby") return this.toLobby(player);
@@ -134,6 +150,7 @@ export class Session {
         case "next": return this.settings.next ? this.error(conn, "INVALID") : this.next(conn);
         case "kick": return this.kick(conn, msg.playerId);
         case "promote": return this.promote(conn, msg.playerId);
+        case "shuffle": return this.shuffle(conn);
         }
     }
 
@@ -164,10 +181,70 @@ export class Session {
         this.broadcastState();
     }
 
+    /**
+     * A player moves to another team. Ignored silently outside the lobby: a click just as the host starts is normal
+     */
+    switchTeam(player, team) {
+        if (this.phase !== "lobby") return;
+        if (!Number.isInteger(team) || team < 0 || team >= this.teamSizes().length) return this.error(player.conn, "INVALID");
+        if (player.team === team) return;
+        player.team = team;
+        player.teamSince = this.now();
+        this.fixLeaders();
+        this.broadcastState();
+    }
+
+    /**
+     * Lobby only: the host deals everyone out at random, one after another to each team, so the teams differ by one at most
+     */
+    shuffle(conn) {
+        if (this.phase !== "lobby" || !this.settings.team) return this.error(conn, "INVALID");
+        const players = [...this.players.values()];
+        for (let i = players.length - 1; i > 0; i--) {
+            const j = randomInt(i + 1);
+            [players[i], players[j]] = [players[j], players[i]];
+        }
+        players.forEach((p, i) => {
+            p.team = i % this.settings.teams;
+            p.teamSince = this.now();
+        });
+        // new teams: their first player leads each
+        this.leaders = [];
+        this.fixLeaders();
+        this.broadcastState();
+    }
+
+    /**
+     * Lobby only: a leader hands the role to someone in their own team who is there
+     */
+    lead(player, playerId) {
+        if (this.phase !== "lobby" || this.leaders[player.team] !== player.id) return this.error(player.conn, "INVALID");
+        const target = this.players.get(playerId);
+        // gone or offline (left while the leader confirmed): nothing to do, the role would only move on again at once
+        if (!target?.connected) return;
+        if (target.team !== player.team) return this.error(player.conn, "INVALID");
+        this.leaders[player.team] = target.id;
+        this.broadcastState();
+    }
+
     updateSettings(conn, settings) {
         if (this.phase !== "lobby" || !validSettings(settings)) return this.error(conn, "INVALID");
+        const before = JSON.stringify(this.settings);
         this.settings = pickSettings(settings);
+        // fewer teams: the players of the dropped ones go to the smallest teams left
+        if (this.settings.team) {
+            this.players.forEach(p => {
+                if (p.team < this.settings.teams) return;
+                p.team = this.smallestTeam();
+                p.teamSince = this.now();
+            });
+        }
+        this.fixLeaders();
+        // a ready was for the old settings: the guests confirm the new ones again
+        const unready = JSON.stringify(this.settings) === before ? [] : [...this.players.values()].filter(p => p.lobbyReady);
+        unready.forEach(p => { p.lobbyReady = false; });
         this.broadcastState();
+        unready.forEach(p => { if (p.conn) this.send(p.conn, { type: "unready" }); });
     }
 
     start(conn, guesses) {
@@ -239,10 +316,17 @@ export class Session {
     }
 
     /**
-     * Somebody to play against: at least one other player is connected (a watcher does not count)
+     * Somebody to play against: at least one other player is connected (a watcher does not count), and in team play
+     * at least two teams have somebody there: in Sum all of the same size, so the sums compare; in Leader every one of
+     * them three, so the leader has guesses to choose from
      */
     canStart() {
-        return Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
+        const others = Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
+        if (!others || !this.settings.team) return others;
+        const playing = this.teamSizes(p => p.connected).filter(n => n > 0);
+        if (this.settings.team === "sum") return playing.length >= 2 && playing.every(n => n === playing[0]);
+        const least = this.settings.team === "leader" ? 3 : 1;
+        return playing.length >= 2 && playing.every(n => n >= least);
     }
 
     checkLoaded() {
@@ -261,7 +345,7 @@ export class Session {
      * A client has the images of round `index`. Never answered with an error: duplicates and late ones are normal
      */
     ready(player, index) {
-        if (!["loading", "round", "reveal"].includes(this.phase) || !Number.isInteger(index)) return;
+        if (!["loading", "round", "decide", "reveal"].includes(this.phase) || !Number.isInteger(index)) return;
         // while loading only the waited-for round, otherwise the running one or the announced next one: a ready
         // left over from an earlier game falls outside and cannot mark a whole new game as loaded
         const newest = this.phase === "loading" ? this.round : this.round + 1;
@@ -295,7 +379,7 @@ export class Session {
 
     answer(player, msg) {
         // the index pins a late answer to its own round instead of the one currently running
-        if (this.phase !== "round" || msg.index !== this.round || player.answers[this.round] || !validAnswer(msg, this.settings.mode)) {
+        if (this.phase !== "round" || msg.index !== this.round || player.answers[this.round] || this.leads(player) || !validAnswer(msg, this.settings.mode)) {
             return this.error(player.conn, "INVALID");
         }
         const size = mapSize(this.guesses[this.round].map);
@@ -303,8 +387,12 @@ export class Session {
         const answer = this.settings.mode === "classic"
             ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
             : { lat: null, lng: null, mapName: msg.mapName };
-        player.answers[this.round] = { ...answer, ...scoreAnswer(this.settings.mode, this.guesses[this.round], answer) };
+        const scored = scoreAnswer(this.settings.mode, this.guesses[this.round], answer);
+        // Sum with minus points: beyond the last scoring step a guess costs the team points
+        if (this.settings.team === "sum" && this.settings.penalty) scored.points += penaltyPoints(scored.distance, size);
+        player.answers[this.round] = { ...answer, ...scored };
         this.broadcastState();
+        this.sendTeamGuesses(player.team);
         this.checkRoundEnd();
     }
 
@@ -324,27 +412,105 @@ export class Session {
             player.awayUntil = 0;
         }
         this.fixHost();
+        const before = this.leaders;
+        const leaders = this.fixLeaders();
         this.broadcastState();
+        if (leaders) this.tellNewLeaders(before);
         this.checkRoundEnd();
     }
 
     checkRoundEnd() {
         if (this.phase === "loading") return this.checkLoaded();
+        if (this.phase === "decide") return this.checkDecideEnd();
         if (this.phase !== "round") return;
-        const waiting = [...this.players.values()].some(p => this.isPresent(p) && !p.answers[this.round]);
+        // a leader guesses nothing
+        const waiting = [...this.players.values()].some(p => this.isPresent(p) && !p.answers[this.round] && !this.leads(p));
         if (!waiting) this.endRound();
     }
 
     endRound() {
+        // with minus points giving no answer must never beat a bad guess; whoever is gone for good adds nothing
+        const missed = this.settings.team === "sum" && this.settings.penalty ? -MAX_PENALTY : 0;
+        this.players.forEach(p => {
+            if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: this.isPresent(p) ? missed : 0 };
+        });
+        if (this.settings.team === "leader") return this.startDecide();
+        this.reveal();
+    }
+
+    /**
+     * Leader: the round is over for the players, now each leader picks one of their team's guesses
+     */
+    startDecide() {
+        this.phase = "decide";
+        this.deadline = this.now() + this.settings.decide * 1000;
+        this.picks = [];
+        if (this.deciding().length === 0) return this.reveal();
+        this.broadcastState();
+        this.broadcast(this.decideMsg());
+        this.sendAllTeamGuesses();
+    }
+
+    /**
+     * The teams whose leader has something to pick from: at least one guess on the map this round
+     */
+    deciding() {
+        return this.teamsInPlay().filter(team => this.members(team).some(p => this.guessOf(p)));
+    }
+
+    /**
+     * A leader picks the guess their team plays this round: one of their own team's, once
+     */
+    pick(player, { index, playerId }) {
+        const target = this.players.get(playerId);
+        if (this.phase !== "decide" || index !== this.round || !this.leads(player) || this.picks[player.team] !== undefined
+            || target?.team !== player.team || !this.guessOf(target)) {
+            return this.error(player.conn, "INVALID");
+        }
+        this.picks[player.team] = target.id;
+        this.broadcastState();
+        this.checkDecideEnd();
+    }
+
+    checkDecideEnd() {
+        if (this.deciding().every(team => this.picks[team] !== undefined)) this.reveal();
+    }
+
+    reveal() {
         this.phase = "reveal";
         this.deadline = null;
         this.nextAt = this.settings.next ? this.now() + this.settings.next * 1000 : null;
-        this.players.forEach(p => {
-            if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: 0 };
-            p.score += p.answers[this.round].points;
-        });
+        this.players.forEach(p => { p.score += p.answers[this.round].points; });
+        if (this.settings.team) {
+            this.teamRounds[this.round] = this.teamsInPlay().map(team => this.teamResult(team));
+            this.teamRounds[this.round].forEach(r => { this.teamScores[r.id] = (this.teamScores[r.id] ?? 0) + r.points; });
+        }
         this.broadcastState();
         this.broadcast(this.revealMsg());
+    }
+
+    /**
+     * A team's result this round: its points, and the point it played (none in Sum)
+     */
+    teamResult(team) {
+        const members = this.members(team);
+        if (this.settings.team === "sum") {
+            const points = members.reduce((total, p) => total + p.answers[this.round].points, 0);
+            return { id: team, points, lat: null, lng: null, picked: null };
+        }
+        const picked = this.settings.team === "leader" ? this.picks[team] ?? null : null;
+        const at = this.teamPoint(members, picked);
+        const points = at ? scoreAnswer("classic", this.guesses[this.round], at).points : 0;
+        return { id: team, points, lat: at?.lat ?? null, lng: at?.lng ?? null, picked };
+    }
+
+    /**
+     * The point a team plays: its leader's pick, or the midpoint of its guesses; null without one
+     */
+    teamPoint(members, picked) {
+        if (this.settings.team === "leader") return picked ? this.guessOf(this.players.get(picked)) : null;
+        const guesses = members.map(p => this.guessOf(p)).filter(Boolean);
+        return guesses.length ? centroid(guesses) : null;
     }
 
     next(conn) {
@@ -377,6 +543,7 @@ export class Session {
         this.nextAt = null;
         // whoever left or dropped out during the game does not haunt the next one (coming back simply joins again)
         this.players.forEach(p => { if (!p.connected) this.players.delete(p.id); });
+        this.fixLeaders();
         // the next game asks everyone again
         this.players.forEach(p => { p.lobbyReady = false; p.backAt = null; });
         player.backAt = this.now();
@@ -385,8 +552,13 @@ export class Session {
     }
 
     tick() {
-        if (this.fixHost()) this.broadcastState();
+        const host = this.fixHost();
+        const before = this.leaders;
+        const leaders = this.fixLeaders();
+        if (host || leaders) this.broadcastState();
+        if (leaders) this.tellNewLeaders(before);
         if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) return this.endRound();
+        if (this.phase === "decide" && this.now() >= this.deadline + GRACE_MS) return this.reveal();
         if (this.phase === "reveal" && this.nextAt !== null && this.now() >= this.nextAt) return this.next();
         // someone who dropped out and did not come back in time stops holding up the round
         this.checkRoundEnd();
@@ -407,6 +579,38 @@ export class Session {
         if (!next) return false;
         this.hostId = next.id;
         return true;
+    }
+
+    /**
+     * Every team with players has a leader: whoever leads stays while they are in the team and there (like the host,
+     * see fixHost); otherwise the connected player who has been in the team longest takes over, and with nobody
+     * connected whoever has been in it longest. True if a leader changed
+     */
+    fixLeaders() {
+        const leaders = [];
+        this.teamsInPlay().forEach(team => {
+            const members = this.members(team).sort((a, b) => a.teamSince - b.teamSince);
+            const current = this.players.get(this.leaders[team]);
+            if (current?.team === team && this.isPresent(current)) leaders[team] = current.id;
+            else leaders[team] = (members.find(p => p.connected) ?? (current?.team === team ? current : members[0])).id;
+        });
+        const changed = JSON.stringify(leaders) !== JSON.stringify(this.leaders);
+        this.leaders = leaders;
+        return changed;
+    }
+
+    /**
+     * After a leader changed (and after the state that says so): a new leader sees the team's guesses at once, and
+     * while the leaders decide gets the decision too, or their page would never offer the pick. Only them: a leader
+     * picking already would lose the selection
+     */
+    tellNewLeaders(before) {
+        this.sendAllTeamGuesses();
+        if (this.phase !== "decide") return;
+        this.leaders.filter(id => !before.includes(id)).forEach(id => {
+            const player = this.players.get(id);
+            if (player.conn) this.send(player.conn, this.decideMsg());
+        });
     }
 
     /**
@@ -433,6 +637,8 @@ export class Session {
             // the host's START: green once everyone is ready, locked while nobody else is there
             allReady: this.allReady(),
             canStart: this.canStart(),
+            // team play: the score in the corner is the team's
+            ...(this.settings.team && { teamScores: this.teamScores }),
             players: [...this.players.values()].map(p => ({
                 id: p.id,
                 name: p.name,
@@ -444,6 +650,9 @@ export class Session {
                 lobbyReady: p.lobbyReady,
                 // false while still on the results of the last game
                 back: p.backAt !== null,
+                team: p.team,
+                leader: this.leaders[p.team] === p.id,
+                picked: this.phase === "decide" && this.leads(p) && this.picks[p.team] !== undefined,
             })),
         };
     }
@@ -458,7 +667,13 @@ export class Session {
 
     roundMsg() {
         const g = this.guesses[this.round];
-        return { type: "round", ...this.assets(this.round), total: this.guesses.length, submitter: g.submitter, deadline: this.deadline };
+        // resent in decide (a reconnect): the round's clock is over then, the leaders' runs (decideMsg)
+        const deadline = this.phase === "round" ? this.deadline : null;
+        return { type: "round", ...this.assets(this.round), total: this.guesses.length, submitter: g.submitter, deadline };
+    }
+
+    decideMsg() {
+        return { type: "decide", index: this.round, deadline: this.deadline, teams: this.deciding() };
     }
 
     prepareMsg(i) {
@@ -468,29 +683,107 @@ export class Session {
     revealMsg() {
         const g = this.guesses[this.round];
         const results = [...this.players.values()]
-            .map(p => ({ id: p.id, name: p.name, score: p.score, ...p.answers[this.round] }))
+            .map(p => ({ id: p.id, name: p.name, score: p.score, ...(this.settings.team && { team: p.team }), ...p.answers[this.round] }))
             .sort((a, b) => b.score - a.score);
-        return {
+        const msg = {
             type: "reveal",
             index: this.round,
             total: this.guesses.length,
             solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng },
             results,
         };
+        if (!this.settings.team) return msg;
+        const teams = this.teamRounds[this.round].map(r => ({ ...r, score: this.teamScores[r.id] })).sort((a, b) => b.score - a.score);
+        return { ...msg, teams };
     }
 
     finalMsg() {
-        const ranking = [...this.players.values()]
-            .map(p => ({ id: p.id, name: p.name, score: p.score }))
-            .sort((a, b) => b.score - a.score);
+        // team play ranks the teams, with who played in them
+        const rows = this.settings.team
+            ? this.teamsInPlay().map(team => ({ id: team, score: this.teamScores[team] ?? 0, members: this.members(team).map(p => p.name) }))
+            : [...this.players.values()].map(p => ({ id: p.id, name: p.name, score: p.score }));
+        const ranking = rows.sort((a, b) => b.score - a.score);
         const top = ranking[0]?.score;
         return { type: "final", ranking, winners: ranking.filter(r => r.score === top).map(r => r.id) };
     }
 
+    /**
+     * Shows a team its own guesses of the running round, to whoever of it may see them (seesTeam): positions only,
+     * since points or a distance would give the solution away. Never to other teams or watchers
+     */
+    sendTeamGuesses(team) {
+        if (!this.settings.team || !["round", "decide"].includes(this.phase)) return;
+        const members = this.members(team);
+        const guesses = members.filter(p => this.guessOf(p)).map(p => ({ id: p.id, name: p.name, lat: p.answers[this.round].lat, lng: p.answers[this.round].lng }));
+        const msg = { type: "teamGuesses", index: this.round, guesses };
+        members.filter(p => p.conn && this.seesTeam(p)).forEach(p => this.send(p.conn, msg));
+    }
+
+    /**
+     * Who of a team sees its guesses: whoever answered already (so nobody copies), its leader (who guesses nothing),
+     * and everyone while the leader decides
+     */
+    seesTeam(p) {
+        return this.phase === "decide" || Boolean(p.answers[this.round]) || this.leads(p);
+    }
+
+    sendAllTeamGuesses() {
+        this.teamsInPlay().forEach(team => this.sendTeamGuesses(team));
+    }
+
     // ===== HELPERS =====
 
+    /**
+     * Leader: this player leads their team, so guesses nothing and picks the team's guess instead
+     */
+    leads(p) {
+        return this.settings.team === "leader" && this.leaders[p.team] === p.id;
+    }
+
+    /**
+     * A player's guess on the map this round, null without one (no answer yet, none in time)
+     */
+    guessOf(p) {
+        const answer = p.answers[this.round];
+        return answer && answer.lat !== null ? answer : null;
+    }
+
+    /**
+     * A team's players, in the order they joined
+     */
+    members(team) {
+        return [...this.players.values()].filter(p => p.team === team);
+    }
+
+    /**
+     * The teams that have players, in team order
+     */
+    teamsInPlay() {
+        return [...new Set([...this.players.values()].map(p => p.team))].sort((a, b) => a - b);
+    }
+
+    /**
+     * Players per team (index = team), counting only those `counted` accepts. Without team play there are 2 teams:
+     * everybody still has one, so switching team play on finds them dealt out already
+     */
+    teamSizes(counted = () => true) {
+        const sizes = Array(this.settings.teams ?? 2).fill(0);
+        this.players.forEach(p => { if (counted(p) && p.team < sizes.length) sizes[p.team]++; });
+        return sizes;
+    }
+
+    /**
+     * Where a newcomer goes: the team with the fewest players, the lowest one on a tie. Once START was pressed only
+     * teams that already have players are filled up, so nobody ends up alone in a team of their own
+     */
+    smallestTeam() {
+        const sizes = this.teamSizes();
+        const open = sizes.map((n, team) => team).filter(team => this.phase === "lobby" || sizes[team] > 0);
+        return open.reduce((best, team) => (sizes[team] < sizes[best] ? team : best), open[0] ?? 0);
+    }
+
     addPlayer(conn, name) {
-        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, backAt: this.now() };
+        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, backAt: this.now(), team: this.smallestTeam(), teamSince: this.now() };
         this.players.set(player.id, player);
         return player;
     }
@@ -507,6 +800,7 @@ export class Session {
         this.welcome(player);
         this.broadcastState();
         this.sendPhase(conn);
+        this.sendTeamGuesses(player.team);
         return true;
     }
 
@@ -519,10 +813,12 @@ export class Session {
 
     sendPhase(conn) {
         if (this.phase === "loading") this.send(conn, this.prepareMsg(this.round));
-        if (this.phase === "round") this.send(conn, this.roundMsg());
+        // in decide the round stays on screen: its images first, then what the leaders do
+        if (["round", "decide"].includes(this.phase)) this.send(conn, this.roundMsg());
+        if (this.phase === "decide") this.send(conn, this.decideMsg());
         if (this.phase === "reveal") this.send(conn, this.revealMsg());
         if (this.phase === "final") this.send(conn, this.finalMsg());
-        if (["round", "reveal"].includes(this.phase) && this.round + 1 < this.guesses.length) {
+        if (["round", "decide", "reveal"].includes(this.phase) && this.round + 1 < this.guesses.length) {
             this.send(conn, this.prepareMsg(this.round + 1));
         }
     }
@@ -533,6 +829,9 @@ export class Session {
 
     resetScores() {
         this.players.forEach(p => { p.score = 0; p.answers = []; p.ready = -1; p.stalled = false; });
+        this.teamScores = [];
+        this.teamRounds = [];
+        this.picks = [];
     }
 
     broadcastState() {
@@ -569,8 +868,10 @@ export class Session {
     }
 }
 
-function pickSettings({ mode, timer, rounds, next = 0 }) {
-    return { mode, timer, rounds, next };
+function pickSettings({ mode, timer, rounds, next = 0, team = "off", teams = 2, penalty = false, decide = 20 }) {
+    // without teams the settings stay what they were before team play: older clients and the plain game see no change
+    if (team === "off") return { mode, timer, rounds, next };
+    return { mode, timer, rounds, next, team, teams, penalty, decide };
 }
 
 function clamp(value, min, max) {
