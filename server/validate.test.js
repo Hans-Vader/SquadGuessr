@@ -104,3 +104,10 @@ test("validSettings: team play also takes Midpoint", () => {
     assert.equal(validSettings({ mode: "classic", timer: 0, rounds: 5, team: "centroid", teams: 3, penalty: false }), true);
     assert.equal(validSettings({ mode: "mapFinder", timer: 0, rounds: 5, team: "centroid", teams: 3, penalty: false }), false);
 });
+
+test("validSettings: team play also takes Leader, whose leaders get 10–60 s to decide", () => {
+    const settings = (over) => validSettings({ mode: "classic", timer: 0, rounds: 5, team: "leader", teams: 2, penalty: false, ...over });
+    [10, 15, 20, 30, 45, 60].forEach(decide => assert.equal(settings({ decide }), true, `decide ${decide}`));
+    [0, 5, 25, 90, "20", null].forEach(decide => assert.equal(settings({ decide }), false, `decide ${decide}`));
+    assert.equal(settings({}), true);
+});

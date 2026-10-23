@@ -46,6 +46,8 @@ export class Session {
         this.teamRounds = [];
         // team play: who leads each team (index = team), kept for every variant; only Leader gives it a meaning
         this.leaders = [];
+        // Leader: the guess each team's leader picked this round (index = team)
+        this.picks = [];
         this.lastActivity = now();
     }
 
@@ -128,6 +130,7 @@ export class Session {
         if (msg.type === "lobbyReady") return this.lobbyReady(player, msg.ready);
         if (msg.type === "team") return this.switchTeam(player, msg.team);
         if (msg.type === "lead") return this.lead(player, msg.playerId);
+        if (msg.type === "pick") return this.pick(player, msg);
         if (msg.type === "leave") return this.leave(player);
         // after a game everyone leaves their results on their own
         if (msg.type === "lobby") return this.toLobby(player);
@@ -310,11 +313,14 @@ export class Session {
 
     /**
      * Somebody to play against: at least one other player is connected (a watcher does not count), and in team play
-     * at least two teams have somebody there
+     * at least two teams have somebody there; in Leader every one of them two, since the leader guesses nothing
      */
     canStart() {
         const others = Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
-        return others && (!this.settings.team || this.teamSizes(p => p.connected).filter(n => n > 0).length >= 2);
+        if (!others || !this.settings.team) return others;
+        const playing = this.teamSizes(p => p.connected).filter(n => n > 0);
+        const least = this.settings.team === "leader" ? 2 : 1;
+        return playing.length >= 2 && playing.every(n => n >= least);
     }
 
     checkLoaded() {
@@ -333,7 +339,7 @@ export class Session {
      * A client has the images of round `index`. Never answered with an error: duplicates and late ones are normal
      */
     ready(player, index) {
-        if (!["loading", "round", "reveal"].includes(this.phase) || !Number.isInteger(index)) return;
+        if (!["loading", "round", "decide", "reveal"].includes(this.phase) || !Number.isInteger(index)) return;
         // while loading only the waited-for round, otherwise the running one or the announced next one: a ready
         // left over from an earlier game falls outside and cannot mark a whole new game as loaded
         const newest = this.phase === "loading" ? this.round : this.round + 1;
@@ -367,7 +373,7 @@ export class Session {
 
     answer(player, msg) {
         // the index pins a late answer to its own round instead of the one currently running
-        if (this.phase !== "round" || msg.index !== this.round || player.answers[this.round] || !validAnswer(msg, this.settings.mode)) {
+        if (this.phase !== "round" || msg.index !== this.round || player.answers[this.round] || this.leads(player) || !validAnswer(msg, this.settings.mode)) {
             return this.error(player.conn, "INVALID");
         }
         const size = mapSize(this.guesses[this.round].map);
@@ -400,15 +406,18 @@ export class Session {
             player.awayUntil = 0;
         }
         this.fixHost();
-        this.fixLeaders();
+        // a new leader sees the team's guesses at once
+        if (this.fixLeaders()) this.sendAllTeamGuesses();
         this.broadcastState();
         this.checkRoundEnd();
     }
 
     checkRoundEnd() {
         if (this.phase === "loading") return this.checkLoaded();
+        if (this.phase === "decide") return this.checkDecideEnd();
         if (this.phase !== "round") return;
-        const waiting = [...this.players.values()].some(p => this.isPresent(p) && !p.answers[this.round]);
+        // a leader guesses nothing
+        const waiting = [...this.players.values()].some(p => this.isPresent(p) && !p.answers[this.round] && !this.leads(p));
         if (!waiting) this.endRound();
     }
 
@@ -418,7 +427,46 @@ export class Session {
         this.players.forEach(p => {
             if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: this.isPresent(p) ? missed : 0 };
         });
+        if (this.settings.team === "leader") return this.startDecide();
         this.reveal();
+    }
+
+    /**
+     * Leader: the round is over for the players, now each leader picks one of their team's guesses
+     */
+    startDecide() {
+        this.phase = "decide";
+        this.deadline = this.now() + this.settings.decide * 1000;
+        this.picks = [];
+        if (this.deciding().length === 0) return this.reveal();
+        this.broadcastState();
+        this.broadcast(this.decideMsg());
+        this.sendAllTeamGuesses();
+    }
+
+    /**
+     * The teams whose leader has something to pick from: at least one guess on the map this round
+     */
+    deciding() {
+        return this.teamsInPlay().filter(team => this.members(team).some(p => this.guessOf(p)));
+    }
+
+    /**
+     * A leader picks the guess their team plays this round: one of their own team's, once
+     */
+    pick(player, { index, playerId }) {
+        const target = this.players.get(playerId);
+        if (this.phase !== "decide" || index !== this.round || !this.leads(player) || this.picks[player.team] !== undefined
+            || target?.team !== player.team || !this.guessOf(target)) {
+            return this.error(player.conn, "INVALID");
+        }
+        this.picks[player.team] = target.id;
+        this.broadcastState();
+        this.checkDecideEnd();
+    }
+
+    checkDecideEnd() {
+        if (this.deciding().every(team => this.picks[team] !== undefined)) this.reveal();
     }
 
     reveal() {
@@ -447,15 +495,17 @@ export class Session {
             const points = counted.length ? Math.round(sum / counted.length) || 0 : 0;
             return { id: team, points, lat: null, lng: null, picked: null };
         }
-        const at = this.teamPoint(members);
+        const picked = this.settings.team === "leader" ? this.picks[team] ?? null : null;
+        const at = this.teamPoint(members, picked);
         const points = at ? scoreAnswer("classic", this.guesses[this.round], at).points : 0;
-        return { id: team, points, lat: at?.lat ?? null, lng: at?.lng ?? null, picked: null };
+        return { id: team, points, lat: at?.lat ?? null, lng: at?.lng ?? null, picked };
     }
 
     /**
-     * The point a team plays: the midpoint of its guesses, null without one
+     * The point a team plays: its leader's pick, or the midpoint of its guesses; null without one
      */
-    teamPoint(members) {
+    teamPoint(members, picked) {
+        if (this.settings.team === "leader") return picked ? this.guessOf(this.players.get(picked)) : null;
         const guesses = members.map(p => this.guessOf(p)).filter(Boolean);
         return guesses.length ? centroid(guesses) : null;
     }
@@ -502,7 +552,10 @@ export class Session {
         const host = this.fixHost();
         const leaders = this.fixLeaders();
         if (host || leaders) this.broadcastState();
+        // a new leader sees the team's guesses at once
+        if (leaders) this.sendAllTeamGuesses();
         if (this.phase === "round" && this.deadline !== null && this.now() >= this.deadline + GRACE_MS) return this.endRound();
+        if (this.phase === "decide" && this.now() >= this.deadline + GRACE_MS) return this.reveal();
         if (this.phase === "reveal" && this.nextAt !== null && this.now() >= this.nextAt) return this.next();
         // someone who dropped out and did not come back in time stops holding up the round
         this.checkRoundEnd();
@@ -582,6 +635,7 @@ export class Session {
                 back: p.backAt !== null,
                 team: p.team,
                 leader: this.leaders[p.team] === p.id,
+                picked: this.phase === "decide" && this.leads(p) && this.picks[p.team] !== undefined,
             })),
         };
     }
@@ -596,7 +650,13 @@ export class Session {
 
     roundMsg() {
         const g = this.guesses[this.round];
-        return { type: "round", ...this.assets(this.round), total: this.guesses.length, submitter: g.submitter, deadline: this.deadline };
+        // resent in decide (a reconnect): the round's clock is over then, the leaders' runs (decideMsg)
+        const deadline = this.phase === "round" ? this.deadline : null;
+        return { type: "round", ...this.assets(this.round), total: this.guesses.length, submitter: g.submitter, deadline };
+    }
+
+    decideMsg() {
+        return { type: "decide", index: this.round, deadline: this.deadline, teams: this.deciding() };
     }
 
     prepareMsg(i) {
@@ -635,7 +695,7 @@ export class Session {
      * since points or a distance would give the solution away. Never to other teams or watchers
      */
     sendTeamGuesses(team) {
-        if (!this.settings.team || this.phase !== "round") return;
+        if (!this.settings.team || !["round", "decide"].includes(this.phase)) return;
         const members = this.members(team);
         const guesses = members.filter(p => this.guessOf(p)).map(p => ({ id: p.id, name: p.name, lat: p.answers[this.round].lat, lng: p.answers[this.round].lng }));
         const msg = { type: "teamGuesses", index: this.round, guesses };
@@ -643,13 +703,25 @@ export class Session {
     }
 
     /**
-     * Who of a team sees its guesses: whoever answered already, so nobody copies
+     * Who of a team sees its guesses: whoever answered already (so nobody copies), its leader (who guesses nothing),
+     * and everyone while the leader decides
      */
     seesTeam(p) {
-        return Boolean(p.answers[this.round]);
+        return this.phase === "decide" || Boolean(p.answers[this.round]) || this.leads(p);
+    }
+
+    sendAllTeamGuesses() {
+        this.teamsInPlay().forEach(team => this.sendTeamGuesses(team));
     }
 
     // ===== HELPERS =====
+
+    /**
+     * Leader: this player leads their team, so guesses nothing and picks the team's guess instead
+     */
+    leads(p) {
+        return this.settings.team === "leader" && this.leaders[p.team] === p.id;
+    }
 
     /**
      * A player's guess on the map this round, null without one (no answer yet, none in time)
@@ -724,10 +796,12 @@ export class Session {
 
     sendPhase(conn) {
         if (this.phase === "loading") this.send(conn, this.prepareMsg(this.round));
-        if (this.phase === "round") this.send(conn, this.roundMsg());
+        // in decide the round stays on screen: its images first, then what the leaders do
+        if (["round", "decide"].includes(this.phase)) this.send(conn, this.roundMsg());
+        if (this.phase === "decide") this.send(conn, this.decideMsg());
         if (this.phase === "reveal") this.send(conn, this.revealMsg());
         if (this.phase === "final") this.send(conn, this.finalMsg());
-        if (["round", "reveal"].includes(this.phase) && this.round + 1 < this.guesses.length) {
+        if (["round", "decide", "reveal"].includes(this.phase) && this.round + 1 < this.guesses.length) {
             this.send(conn, this.prepareMsg(this.round + 1));
         }
     }
@@ -740,6 +814,7 @@ export class Session {
         this.players.forEach(p => { p.score = 0; p.answers = []; p.ready = -1; p.stalled = false; });
         this.teamScores = [];
         this.teamRounds = [];
+        this.picks = [];
     }
 
     broadcastState() {
@@ -776,10 +851,10 @@ export class Session {
     }
 }
 
-function pickSettings({ mode, timer, rounds, next = 0, team = "off", teams = 2, penalty = false }) {
+function pickSettings({ mode, timer, rounds, next = 0, team = "off", teams = 2, penalty = false, decide = 20 }) {
     // without teams the settings stay what they were before team play: older clients and the plain game see no change
     if (team === "off") return { mode, timer, rounds, next };
-    return { mode, timer, rounds, next, team, teams, penalty };
+    return { mode, timer, rounds, next, team, teams, penalty, decide };
 }
 
 function clamp(value, min, max) {
