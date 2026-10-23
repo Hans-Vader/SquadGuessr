@@ -612,6 +612,8 @@ body.watch-mode.mp-reveal {
     height: 0.7em;
     margin-right: 0.4em;
     border-radius: 50%;
+    // grey: White still shows on the light name tags, Black on the dark lobby
+    box-shadow: 0 0 0 1px #888;
 }
 
 // team play lobby: a block per team; a click on its head joins it
@@ -663,6 +665,11 @@ body.watch-mode.mp-reveal {
         font-size: 18px;
         line-height: 1;
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+    }
+    // a light team color (yellow, white, lime) gets a dark flag
+    &.light .disc {
+        color: #111;
+        text-shadow: none;
     }
     // pulses three times when the reveal shows the point, then rests
     .ring {

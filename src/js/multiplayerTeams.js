@@ -1,8 +1,17 @@
 import i18next from "i18next";
 import { CircleMarker, DivIcon, LayerGroup, Marker } from "leaflet";
 
-// one color per team, in team order: mp.teamNames names them the same way
-export const TEAM_COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#e5e5e5", "#92400e"];
+// one color per team, in team order: mp.teamNames names them the same way. No red, blue or green: the own pin is red,
+// the others' pins are blue and the solution is green
+export const TEAM_COLORS = ["#facc15", "#a855f7", "#f97316", "#14b8a6", "#ec4899", "#1f2937", "#e5e5e5", "#92400e", "#a3e635", "#6b7280"];
+
+/**
+ * Light enough that white on it would vanish (yellow, white, lime)
+ */
+function isLight(hex) {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+    return 0.299 * r + 0.587 * g + 0.114 * b > 160;
+}
 
 const t = (key, options) => i18next.t(key, { ns: "common", ...options });
 
@@ -135,6 +144,7 @@ export class Teams {
         label.prepend(teamDot(t.id)[0]);
         const point = document.createElement("div");
         point.className = "mp-team-point";
+        point.classList.toggle("light", isLight(TEAM_COLORS[t.id]));
         point.style.setProperty("--team", TEAM_COLORS[t.id]);
         // fixed markup, nothing from a player in it
         point.innerHTML = "<span class=\"ring\"></span><span class=\"disc\">⚑</span>";
