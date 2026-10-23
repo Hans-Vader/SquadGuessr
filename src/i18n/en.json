@@ -70,7 +70,12 @@
         "settings": {
             "rounds": "Rounds",
             "next": "Next round",
-            "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up."
+            "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up.",
+            "team": "Teams",
+            "teamHint": "Play in teams. Average: everyone guesses, a team scores the average of its players.",
+            "teams": "Number of teams",
+            "penalty": "Minus points",
+            "penaltyHint": "Guesses that would score nothing cost up to 50 points (the further off, the more), and so does giving no answer."
         },
         "gameRunning": "This game has already started. You can still watch it.",
         "reconnecting": "Reconnecting…",
@@ -108,7 +113,8 @@
             "leave": "LEAVE",
             "endRound": "END ROUND",
             "watch": "WATCH",
-            "rejoin": "REJOIN"
+            "rejoin": "REJOIN",
+            "shuffle": "SHUFFLE"
         },
         "errors": {
             "SESSION_NOT_FOUND": "Session not found",
@@ -123,7 +129,28 @@
             "REPLACED": "You went on playing in another tab or on another device",
             "NO_PLAYERS": "At least one other player has to join first",
             "KICKED": "The host removed you from the session"
-        }
+        },
+        "teamModes": {
+            "off": "Off",
+            "average": "Average"
+        },
+        "on": "On",
+        "off": "Off",
+        "teamCount": "{{n}} teams",
+        "teamName": "Team {{name}}",
+        "teamNames": {
+            "0": "Blue",
+            "1": "Red",
+            "2": "Green",
+            "3": "Yellow",
+            "4": "Purple",
+            "5": "Orange",
+            "6": "Teal",
+            "7": "Pink",
+            "8": "White",
+            "9": "Brown"
+        },
+        "needTeams": "At least two teams need players"
     },
     "submit": {
         "open": "SUBMIT A GUESS",

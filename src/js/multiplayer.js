@@ -7,6 +7,7 @@ import { copyText } from "./clipboard.js";
 import Preloader from "./preloader.js";
 import { findMap, basemapUrl } from "./data/maps.js";
 import { rankMoves } from "./scoring.js";
+import { Teams, teamDot } from "./multiplayerTeams.js";
 
 const RETRY_DELAYS = [1000, 2000, 5000];
 // NEXT / RESULTS stay locked until the server answers, or at most this long (e.g. the connection just dropped)
@@ -46,6 +47,8 @@ export default class Multiplayer {
         this.resumeCheck = null;
         // the session the REJOIN hint on screen offers
         this.resumeCode = null;
+        // team play: the lobby's teams, the teammates' guesses
+        this.teams = new Teams(this);
     }
 
     init() {
@@ -82,8 +85,10 @@ export default class Multiplayer {
         $("#BUTTON_MP_ENDROUND").on("click", () => this.send({ type: "endRound" }));
         $("#BUTTON_MP_COPY_JOIN").on("click", () => this.copyLink("#mpJoinUrl", "mp.joinLinkCopied"));
         $("#BUTTON_MP_COPY_WATCH").on("click", () => this.copyLink("#mpWatchUrl", "mp.watchLinkCopied"));
+        $("#mpTeamList").on("click", ".mp-team-head", (e) => this.send({ type: "team", team: Number(e.currentTarget.dataset.team) }));
+        $("#BUTTON_MP_SHUFFLE").on("click", () => this.send({ type: "shuffle" }));
         $("#mpSettings select").on("change", () => this.send({ type: "settings", settings: this.readSettings() }));
-        $("#mpPlayers").on("click", ".mp-promote, .mp-kick", (e) => {
+        $("#mpPlayers, #mpTeamList").on("click", ".mp-promote, .mp-kick", (e) => {
             const { id, action } = e.currentTarget.dataset;
             const name = this.state?.players.find(p => p.id === id)?.name;
             // a plain-text dialog: the name must not come out escaped
@@ -135,12 +140,17 @@ export default class Multiplayer {
 
     readSettings() {
         const rush = $("#mpTimer").val() === "rush";
+        const mode = $("#mpMode").val();
         return {
-            mode: $("#mpMode").val(),
+            mode,
             timer: Number(rush ? $("#mpRush").val() : $("#mpTimer").val()),
             rounds: Number($("#mpRounds").val()),
             // 0: the host moves on with NEXT
             next: $("#mpNext").val() === "auto" ? Number($("#mpNextDelay").val()) : 0,
+            // team play is classic only: switching to Find the Map turns it off
+            team: mode === "classic" ? $("#mpTeam").val() : "off",
+            teams: Number($("#mpTeamCount").val()),
+            penalty: $("#mpPenalty").val() === "on",
         };
     }
 
@@ -480,6 +490,15 @@ export default class Multiplayer {
         $("#mpNext").val(next ? "auto" : "0");
         $("#mpNextDelay").prop("hidden", !next);
         if (next) $("#mpNextDelay").val(String(next));
+        const team = s.settings.team ?? "off";
+        $("#mpTeam").val(team);
+        $("#mpTeamCount").prop("hidden", team === "off");
+        $(".mp-penalty").prop("hidden", team !== "average");
+        // without teams the settings carry no team fields: the hidden selects keep their last choice for switching back
+        if (s.settings.team) {
+            $("#mpTeamCount").val(String(s.settings.teams));
+            $("#mpPenalty").val(s.settings.penalty ? "on" : "off");
+        }
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
@@ -535,6 +554,8 @@ export default class Multiplayer {
         this.renderLobbyButtons(s, starting);
         // the lobby stays on screen while the first round loads: the start went through, the settings are fixed
         $("#mpSettings select").prop("disabled", s.phase !== "lobby");
+        // team play is classic only
+        $("#mpTeam").prop("disabled", s.phase !== "lobby" || s.settings.mode !== "classic");
         $("#mpWaitingForHost").prop("hidden", loading);
         $("#mpLobbyStatus").prop("hidden", !loading);
         clearInterval(this.statusTimer);
@@ -574,12 +595,15 @@ export default class Multiplayer {
         if (!this.guessFetch) {
             $start.prop("disabled", !s.canStart).toggleClass("all-ready", s.allReady);
             // through data-i18n-title, so a language switch keeps the tooltip
+            // in team play with somebody else there, what is missing is a second team
+            const key = s.settings.team && s.players.some(p => p.connected && p.id !== s.hostId) ? "mp.needTeams" : "mp.needPlayers";
             if (s.canStart) $start.removeAttr("title data-i18n-title");
-            else $start.attr({ "data-i18n-title": "common:mp.needPlayers", title: i18next.t("mp.needPlayers", { ns: "common" }) });
+            else $start.attr({ "data-i18n-title": `common:${key}`, title: i18next.t(key, { ns: "common" }) });
         }
         $("#BUTTON_MP_CANCEL").prop("hidden", !starting);
         // a clicked CANCEL stays locked until the start is off or round 1 runs
         if (!starting) $("#BUTTON_MP_CANCEL").prop("disabled", false);
+        $("#BUTTON_MP_SHUFFLE").prop("hidden", s.phase !== "lobby" || !s.settings.team);
     }
 
     /**
@@ -854,10 +878,12 @@ export default class Multiplayer {
             .attr("title", s.phase === "lobby" && p.back === false ? i18next.t("mp.onResults", { ns: "common" }) : null)
             .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
             .toggleClass("me", p.id === this.me);
-        $("#mpChips").empty().append(s.players.map(chip));
+        const teamPlay = Boolean(s.settings.team);
+        // in-game chips: team play shows each player's team in front of the name
+        $("#mpChips").empty().append(s.players.map(p => chip(p).prepend(teamPlay ? teamDot(p.team) : null)));
         // kicking is lobby only, so the in-game chips stay without the button
         const kickable = s.phase === "lobby" && this.isHost();
-        $("#mpPlayers").empty().append(s.players.map(p => {
+        const item = p => {
             const $li = chip(p);
             if (!kickable || p.id === this.me) return $li;
             const button = (action, icon, key) => {
@@ -868,7 +894,12 @@ export default class Multiplayer {
             // only to someone who is there: the role would move on again at once (see fixHost on the server)
             if (p.connected && p.back !== false) $li.append(button("promote", "🔑", "mp.makeHost"));
             return $li.append(button("kick", "✕", "mp.kick"));
-        }));
+        };
+        // team play: a block per team instead of the one list
+        if (teamPlay) this.teams.renderLobby(s, item);
+        else $("#mpPlayers").empty().append(s.players.map(item));
+        $("#mpPlayers").prop("hidden", teamPlay);
+        $("#mpTeamList").prop("hidden", !teamPlay);
         // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
         $("#mpRanking li").each((_, li) => {
             const p = s.players.find(x => x.id === li.dataset.id);
@@ -915,13 +946,15 @@ export default class Multiplayer {
         });
     }
 
-    describeSettings({ mode, timer, rounds, next }) {
-        const t = (key) => i18next.t(key, { ns: "common" });
+    describeSettings({ mode, timer, rounds, next, team, teams, penalty }) {
+        const t = (key, options) => i18next.t(key, { ns: "common", ...options });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
         // a no-break space keeps "10 s" together when the summary wraps
         const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}`;
+        const penaltyLabel = team === "average" && penalty ? ` · ${t("mp.settings.penalty")}` : "";
+        const teamLabel = team ? ` · ${t(`mp.teamModes.${team}`)} · ${t("mp.teamCount", { n: teams })}${penaltyLabel}` : "";
+        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${teamLabel}`;
     }
 
     showEntry() {
