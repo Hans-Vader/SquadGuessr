@@ -859,20 +859,23 @@ export default class Multiplayer {
         const lineStyle = r => (msg.teams ? { color: TEAM_COLORS[r.team], opacity: 0.8 } : othersStyle);
         // Midpoint and Leader play one point per team: only that point gets a line to the solution
         const lines = !msg.teams || this.state.settings.team === "sum";
+        // Leader: the team's point stands on the picked guess, so it takes that pin's place and names whose guess it was
+        const picked = new Set((msg.teams ?? []).map(t => t.picked).filter(Boolean));
         msg.results
-            .filter(r => r.lat !== null && r.id !== this.me)
+            .filter(r => r.lat !== null && r.id !== this.me && !picked.has(r.id))
             .forEach(r => {
                 this.addPlayerMarker(r);
                 if (lines) app.drawSolutionDistance(latLng, this.toMap(r), lineStyle(r));
             });
-        if (mine && mine.lat !== null) {
+        if (mine && mine.lat !== null && !picked.has(mine.id)) {
             const you = { ...mine, name: i18next.t("mp.you", { ns: "common" }) };
             mm.guessMarker = this.addPlayerMarker(you, { iconClass: "mp-own", zIndexOffset: 1000 });
             if (lines) app.drawSolutionDistance(latLng);
         }
         (msg.teams ?? []).filter(t => t.lat !== null).forEach(t => {
-            this.teams.addTeamMarker(t);
-            app.drawSolutionDistance(latLng, this.toMap(t), { color: TEAM_COLORS[t.id], opacity: 1 });
+            const by = msg.results.find(r => r.id === t.picked);
+            this.teams.addTeamMarker(t, by && (by.id === this.me ? i18next.t("mp.you", { ns: "common" }) : by.name));
+            app.drawSolutionDistance(latLng, this.toMap(t), { color: TEAM_COLORS[t.id], opacity: 1, weight: 4 });
         });
         this.focusReveal(latLng, [...msg.results, ...(msg.teams ?? [])]);
 
