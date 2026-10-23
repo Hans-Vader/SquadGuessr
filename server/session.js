@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomInt } from "node:crypto";
 import { scoreAnswer, mapSize } from "../src/js/scoring.js";
 import { cleanName, validSettings, validGuesses, validAnswer } from "./validate.js";
 
-export const MAX_PLAYERS = 12;
+export const MAX_PLAYERS = 30;
 export const MAX_WATCHERS = 20;
 export const GRACE_MS = 1000;
 export const RECONNECT_MS = 30 * 1000;
@@ -15,7 +15,7 @@ export const COUNTDOWN_FORCED_MS = 15 * 1000;
 // how long players back in the lobby wait for a host still on the results before one of them takes over
 export const HANDOVER_MS = 30 * 1000;
 
-const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "kick", "promote"];
+const HOST_ACTIONS = ["settings", "start", "cancelStart", "endRound", "next", "kick", "promote", "shuffle"];
 
 /**
  * One multiplayer session: lobby → loading → round → reveal → loading → … → final
@@ -119,6 +119,7 @@ export class Session {
         if (msg.type === "answer") return this.answer(player, msg);
         if (msg.type === "ready") return this.ready(player, msg.index);
         if (msg.type === "lobbyReady") return this.lobbyReady(player, msg.ready);
+        if (msg.type === "team") return this.switchTeam(player, msg.team);
         if (msg.type === "leave") return this.leave(player);
         // after a game everyone leaves their results on their own
         if (msg.type === "lobby") return this.toLobby(player);
@@ -134,6 +135,7 @@ export class Session {
         case "next": return this.settings.next ? this.error(conn, "INVALID") : this.next(conn);
         case "kick": return this.kick(conn, msg.playerId);
         case "promote": return this.promote(conn, msg.playerId);
+        case "shuffle": return this.shuffle(conn);
         }
     }
 
@@ -164,10 +166,37 @@ export class Session {
         this.broadcastState();
     }
 
+    /**
+     * A player moves to another team. Ignored silently outside the lobby: a click just as the host starts is normal
+     */
+    switchTeam(player, team) {
+        if (this.phase !== "lobby") return;
+        if (!Number.isInteger(team) || team < 0 || team >= this.teamSizes().length) return this.error(player.conn, "INVALID");
+        if (player.team === team) return;
+        player.team = team;
+        this.broadcastState();
+    }
+
+    /**
+     * Lobby only: the host deals everyone out at random, one after another to each team, so the teams differ by one at most
+     */
+    shuffle(conn) {
+        if (this.phase !== "lobby" || !this.settings.team) return this.error(conn, "INVALID");
+        const players = [...this.players.values()];
+        for (let i = players.length - 1; i > 0; i--) {
+            const j = randomInt(i + 1);
+            [players[i], players[j]] = [players[j], players[i]];
+        }
+        players.forEach((p, i) => { p.team = i % this.settings.teams; });
+        this.broadcastState();
+    }
+
     updateSettings(conn, settings) {
         if (this.phase !== "lobby" || !validSettings(settings)) return this.error(conn, "INVALID");
         const before = JSON.stringify(this.settings);
         this.settings = pickSettings(settings);
+        // fewer teams: the players of the dropped ones go to the smallest teams left
+        if (this.settings.team) this.players.forEach(p => { if (p.team >= this.settings.teams) p.team = this.smallestTeam(); });
         // a ready was for the old settings: the guests confirm the new ones again
         const unready = JSON.stringify(this.settings) === before ? [] : [...this.players.values()].filter(p => p.lobbyReady);
         unready.forEach(p => { p.lobbyReady = false; });
@@ -244,10 +273,12 @@ export class Session {
     }
 
     /**
-     * Somebody to play against: at least one other player is connected (a watcher does not count)
+     * Somebody to play against: at least one other player is connected (a watcher does not count), and in team play
+     * at least two teams have somebody there
      */
     canStart() {
-        return Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
+        const others = Boolean(this.findPlayer(p => p.connected && p.id !== this.hostId));
+        return others && (!this.settings.team || this.teamSizes(p => p.connected).filter(n => n > 0).length >= 2);
     }
 
     checkLoaded() {
@@ -449,6 +480,7 @@ export class Session {
                 lobbyReady: p.lobbyReady,
                 // false while still on the results of the last game
                 back: p.backAt !== null,
+                team: p.team,
             })),
         };
     }
@@ -494,8 +526,28 @@ export class Session {
 
     // ===== HELPERS =====
 
+    /**
+     * Players per team (index = team), counting only those `counted` accepts. Without team play there are 2 teams:
+     * everybody still has one, so switching team play on finds them dealt out already
+     */
+    teamSizes(counted = () => true) {
+        const sizes = Array(this.settings.teams ?? 2).fill(0);
+        this.players.forEach(p => { if (counted(p) && p.team < sizes.length) sizes[p.team]++; });
+        return sizes;
+    }
+
+    /**
+     * Where a newcomer goes: the team with the fewest players, the lowest one on a tie. Once START was pressed only
+     * teams that already have players are filled up, so nobody ends up alone in a team of their own
+     */
+    smallestTeam() {
+        const sizes = this.teamSizes();
+        const open = sizes.map((n, team) => team).filter(team => this.phase === "lobby" || sizes[team] > 0);
+        return open.reduce((best, team) => (sizes[team] < sizes[best] ? team : best), open[0] ?? 0);
+    }
+
     addPlayer(conn, name) {
-        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, backAt: this.now() };
+        const player = { id: randomUUID(), token: randomUUID(), name, conn, connected: true, awayUntil: 0, score: 0, answers: [], ready: -1, stalled: false, lobbyReady: false, backAt: this.now(), team: this.smallestTeam() };
         this.players.set(player.id, player);
         return player;
     }
@@ -574,8 +626,10 @@ export class Session {
     }
 }
 
-function pickSettings({ mode, timer, rounds, next = 0 }) {
-    return { mode, timer, rounds, next };
+function pickSettings({ mode, timer, rounds, next = 0, team = "off", teams = 2, penalty = false }) {
+    // without teams the settings stay what they were before team play: older clients and the plain game see no change
+    if (team === "off") return { mode, timer, rounds, next };
+    return { mode, timer, rounds, next, team, teams, penalty };
 }
 
 function clamp(value, min, max) {
