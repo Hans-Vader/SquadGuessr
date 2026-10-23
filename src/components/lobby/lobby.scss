@@ -593,3 +593,41 @@ body.watch-mode.mp-reveal {
         padding: 0.2em 0.5em;
     }
 }
+
+// team play: a round swatch in the team's color in front of a team's or a player's name
+
+.team-dot {
+    display: inline-block;
+    width: 0.7em;
+    height: 0.7em;
+    margin-right: 0.4em;
+    border-radius: 50%;
+}
+
+// team play lobby: a block per team; a click on its head joins it
+
+#mpTeamList {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    width: 100%;
+}
+
+.mp-team {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    padding: 0.5em;
+    border: 2px solid #333;
+    border-radius: 12px;
+}
+
+.mp-team-head {
+    align-self: flex-start;
+    padding: 0.3em 0.6em;
+    font-size: 0.95em;
+    background: transparent;
+    &:hover:not(:disabled) {
+        background: #272727;
+    }
+}
