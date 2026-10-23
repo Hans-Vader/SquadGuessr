@@ -498,6 +498,8 @@ export class Session {
             // the host's START: green once everyone is ready, locked while nobody else is there
             allReady: this.allReady(),
             canStart: this.canStart(),
+            // team play: the score in the corner is the team's
+            ...(this.settings.team && { teamScores: this.teamScores }),
             players: [...this.players.values()].map(p => ({
                 id: p.id,
                 name: p.name,
