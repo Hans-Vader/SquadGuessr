@@ -522,7 +522,7 @@ export default class Multiplayer {
         const team = s.settings.team ?? "off";
         $("#mpTeam").val(team);
         $("#mpTeamCount").prop("hidden", team === "off");
-        $(".mp-penalty").prop("hidden", team !== "average");
+        $(".mp-penalty").prop("hidden", team !== "sum");
         $(".mp-decide").prop("hidden", team !== "leader");
         // without teams the settings carry no team fields: the hidden selects keep their last choice for switching back
         if (s.settings.team) {
@@ -641,8 +641,8 @@ export default class Multiplayer {
         if (!this.guessFetch) {
             $start.prop("disabled", !s.canStart).toggleClass("all-ready", s.allReady);
             // through data-i18n-title, so a language switch keeps the tooltip
-            // in team play with somebody else there, what is missing is a second team
-            const key = s.settings.team && s.players.some(p => p.connected && p.id !== s.hostId) ? "mp.needTeams" : "mp.needPlayers";
+            // in team play with somebody else there, what is missing is the variant's team rule
+            const key = s.settings.team && s.players.some(p => p.connected && p.id !== s.hostId) ? `mp.needTeams.${s.settings.team}` : "mp.needPlayers";
             if (s.canStart) $start.removeAttr("title data-i18n-title");
             else $start.attr({ "data-i18n-title": `common:${key}`, title: i18next.t(key, { ns: "common" }) });
         }
@@ -858,7 +858,7 @@ export default class Multiplayer {
         // team play: every line in its team's color
         const lineStyle = r => (msg.teams ? { color: TEAM_COLORS[r.team], opacity: 0.8 } : othersStyle);
         // Midpoint and Leader play one point per team: only that point gets a line to the solution
-        const lines = !msg.teams || this.state.settings.team === "average";
+        const lines = !msg.teams || this.state.settings.team === "sum";
         msg.results
             .filter(r => r.lat !== null && r.id !== this.me)
             .forEach(r => {
@@ -1060,7 +1060,7 @@ export default class Multiplayer {
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
         // a no-break space keeps "10 s" together when the summary wraps
         const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
-        const penaltyLabel = team === "average" && penalty ? ` · ${t("mp.settings.penalty")}` : "";
+        const penaltyLabel = team === "sum" && penalty ? ` · ${t("mp.settings.penalty")}` : "";
         const decideLabel = team === "leader" ? ` · ${t("mp.settings.decide")} ${decide}\u00a0s` : "";
         const teamLabel = team ? ` · ${t(`mp.teamModes.${team}`)} · ${t("mp.teamCount", { n: teams })}${penaltyLabel}${decideLabel}` : "";
         return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${teamLabel}`;

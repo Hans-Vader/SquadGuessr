@@ -9,7 +9,7 @@ const TIMERS = [0, ...SECONDS, 60];
 const NEXTS = [0, ...SECONDS];
 const ROUNDS = [3, 5, 10];
 // team play: "off" is everyone for themselves
-const TEAM_MODES = ["off", "average", "centroid", "leader"];
+const TEAM_MODES = ["off", "sum", "centroid", "leader"];
 const MAX_TEAMS = 10;
 // Leader: how long the leaders have to pick their team's guess
 const DECIDES = [10, 15, 20, 30, 45, 60];

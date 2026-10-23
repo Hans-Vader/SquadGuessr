@@ -72,7 +72,7 @@
             "next": "Next round",
             "nextHint": "When the next round starts after the reveal. Host: when you press NEXT. Auto: by itself for everyone once the chosen time is up.",
             "team": "Teams",
-            "teamHint": "Play in teams. Average: everyone guesses, a team scores the average of its players. Midpoint: everyone guesses, a team plays the midpoint of its guesses. Leader: the members guess, the leader picks one of their guesses for the team.",
+            "teamHint": "Play in teams. Sum: everyone guesses, a team scores the sum of its players, so all teams have the same size. Midpoint: everyone guesses, a team plays the midpoint of its guesses. Leader: the members guess, the leader picks one of their guesses for the team.",
             "teams": "Number of teams",
             "penalty": "Minus points",
             "penaltyHint": "Guesses that would score nothing cost up to 50 points (the further off, the more), and so does giving no answer.",
@@ -136,7 +136,7 @@
         },
         "teamModes": {
             "off": "Off",
-            "average": "Average",
+            "sum": "Sum",
             "centroid": "Midpoint",
             "leader": "Leader"
         },
@@ -156,7 +156,11 @@
             "8": "White",
             "9": "Brown"
         },
-        "needTeams": "At least two teams need players, and in Leader mode three in every team",
+        "needTeams": {
+            "sum": "At least two teams need players, all of the same size",
+            "centroid": "At least two teams need players",
+            "leader": "At least two teams need players, and three in every team"
+        },
         "makeLeader": "Make {{name}} leader",
         "teamGuessing": "Your team is guessing ({{answered}}/{{total}})",
         "pickGuess": "Pick the guess for your team",
