@@ -237,13 +237,16 @@ export class Session {
             const j = randomInt(i + 1);
             [players[i], players[j]] = [players[j], players[i]];
         }
+        // a millisecond apart, in the order of the deal: within one clock tick the join order would decide who leads
         players.forEach((p, i) => {
             p.team = i % this.settings.teams;
-            p.teamSince = this.now();
+            p.teamSince = this.now() + i;
         });
-        // new teams: their first player leads each
+        // new teams: the first player dealt to each leads it
         this.leaders = [];
         this.fixLeaders();
+        // before the state: from it each page tells its player the new team, which was not their own doing
+        this.broadcast({ type: "shuffled" });
         this.broadcastState();
     }
 

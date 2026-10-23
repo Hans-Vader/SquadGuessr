@@ -104,6 +104,9 @@
         "makeHost": "Make {{name}} host",
         "nowHost": "You are now the host",
         "noLongerHost": "You are no longer the host",
+        "nowLeader": "You are now the leader of {{team}}",
+        "shuffled": "The host shuffled the teams: you are now in {{team}}",
+        "shuffledLeader": "The host shuffled the teams: you now lead {{team}}",
         "confirm": {
             "kick": "Remove {{name}} from the session?",
             "promote": "Make {{name}} the host? You will be a regular player then.",

@@ -193,6 +193,11 @@
         &.ready {
             background: variables.$newColor;
         }
+        // Leader: gold like the ⭐ in front of the name, readable on the dark chip and on a ready one's green
+        &.leader {
+            color: #fde047;
+            font-weight: 600;
+        }
     }
     // host's promote and kick icons inside a lobby chip: none of the big global button look
     .mp-promote,
