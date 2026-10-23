@@ -1253,6 +1253,16 @@ test("team play: the host shuffles everyone into teams that differ by one at mos
     assert.deepEqual(sizes.sort(), [1, 2, 2]);
 });
 
+test("team play: a shuffle is announced to everyone right before the state with the new teams", () => {
+    const { s, sent, host, max, ida } = teamLobby();
+    s.handle(host, { type: "shuffle" });
+    // the page tells its player the new team (and lead) from that state, not from a switch of their own
+    [host, max, ida].forEach(conn => {
+        const mine = sent.filter(x => x.conn === conn).map(x => x.msg.type);
+        assert.deepEqual(mine.slice(-2), ["shuffled", "state"], conn.id);
+    });
+});
+
 test("Leader: after a shuffle the first player dealt to a team leads it, not whoever joined first", () => {
     const { s, host } = teamLobby(LEADER);
     // one clock tick for the whole shuffle: only the deal may order the players. The host is the first to join, so

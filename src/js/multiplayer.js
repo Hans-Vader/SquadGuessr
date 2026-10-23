@@ -399,6 +399,7 @@ export default class Multiplayer {
                 history.replaceState({}, "", `/?watch=${msg.code}`);
             }
             this.onHostChange(this.state?.hostId, msg.hostId);
+            this.onTeamChange(this.state, msg);
             this.state = msg;
             this.renderState();
             break;
@@ -425,6 +426,10 @@ export default class Multiplayer {
             break;
         case "unready":
             this.toast("info", "mp.unready");
+            break;
+        case "shuffled":
+            // the state with the new teams comes right after: onTeamChange tells the player
+            this.shuffled = true;
             break;
         case "error":
             this.onError(msg.code);
@@ -474,6 +479,24 @@ export default class Multiplayer {
         if (before !== this.me) return;
         if (!this.gaveHost) this.toast("warning", "mp.noLongerHost");
         this.gaveHost = false;
+    }
+
+    /**
+     * Tells this player their team after the host shuffled, and in Leader when they came to lead a team without a
+     * shuffle (handed over, the leader left, a switch into an empty team); never on the first state, never on the big
+     * screen, and never twice for one change
+     */
+    onTeamChange(before, now) {
+        const shuffled = this.shuffled;
+        this.shuffled = false;
+        const was = before?.players.find(p => p.id === this.me);
+        const is = now.players.find(p => p.id === this.me);
+        if (!was || !is) return;
+        const team = teamName(is.team);
+        const leads = now.settings.team === "leader" && is.leader;
+        if (shuffled) return this.toast("info", leads ? "mp.shuffledLeader" : "mp.shuffled", { team });
+        const led = before.settings.team === "leader" && was.leader && was.team === is.team;
+        if (leads && !led) this.toast("success", "mp.nowLeader", { team });
     }
 
     // ===== RENDERING =====
@@ -979,6 +1002,8 @@ export default class Multiplayer {
         const chip = p => $("<li>")
             .text([`${p.id === s.hostId ? "👑 " : ""}${s.settings.team === "leader" && p.leader ? "⭐ " : ""}${p.name}${this.doneMark(s, p) ? " ✓" : ""}`, this.loadMark(s, p), s.phase === "lobby" && p.back === false ? "⏳" : ""].filter(Boolean).join(" "))
             .toggleClass("offline", !p.connected)
+            // Leader: the leader's name in gold like the star, so the team sees at once who leads it
+            .toggleClass("leader", s.settings.team === "leader" && p.leader)
             .attr("title", s.phase === "lobby" && p.back === false ? i18next.t("mp.onResults", { ns: "common" }) : null)
             .toggleClass("ready", s.phase === "lobby" && this.doneMark(s, p))
             .toggleClass("me", p.id === this.me);
