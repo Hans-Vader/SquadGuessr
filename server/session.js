@@ -464,9 +464,11 @@ export class Session {
         }
         const size = mapSize(this.guesses[this.round].map);
         // kept on the map like the client's marker: absurd coordinates would break the reveal on every screen
+        // a map name is cut like the input field does (maxlength in game.html), not rejected: the client has
+        // already locked the field, so a rejected answer would leave the player unable to answer this round
         const answer = this.settings.mode === "classic"
             ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
-            : { lat: null, lng: null, mapName: msg.mapName };
+            : { lat: null, lng: null, mapName: msg.mapName.slice(0, 40) };
         const scored = scoreAnswer(this.settings.mode, this.guesses[this.round], answer);
         // Sum with minus points: beyond the last scoring step a guess costs the team points
         if (this.settings.team === "sum" && this.settings.penalty) scored.points += penaltyPoints(scored.distance, size);
@@ -797,7 +799,7 @@ export class Session {
             type: "reveal",
             index: this.round,
             total: this.guesses.length,
-            solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng },
+            solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng, submitter: g.submitter },
             results,
         };
         if (!this.settings.team) return msg;

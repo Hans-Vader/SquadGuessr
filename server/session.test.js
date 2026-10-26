@@ -184,7 +184,8 @@ test("round ends when every connected player answered", () => {
     s.handle(guest, { type: "answer", index: s.round, lat: -2800, lng: 2800 });
     assert.equal(s.phase, "reveal");
     const reveal = last(guest, "reveal");
-    assert.deepEqual(reveal.solution, { map: "Narva", url: "/img/guesses/a.webp", lat: -100, lng: 200 });
+    // the credit comes along: a screen that missed the round (big screen, reconnect) only gets the reveal
+    assert.deepEqual(reveal.solution, { map: "Narva", url: "/img/guesses/a.webp", lat: -100, lng: 200, submitter: "Dan" });
     const hans = reveal.results.find(r => r.name === "Hans");
     const max = reveal.results.find(r => r.name === "Max");
     assert.equal(hans.points, 100);
@@ -261,6 +262,17 @@ test("mapFinder answers are scored by map name", () => {
     assert.equal(results.find(r => r.name === "Hans").points, 100);
     assert.equal(results.find(r => r.name === "Max").points, 0);
     assert.equal(results.find(r => r.name === "Hans").lat, null);
+});
+
+test("a long map name keeps its first 40 characters instead of being rejected", () => {
+    const { s, host, guest, last } = started({ mode: "mapFinder", timer: 0, rounds: 3 });
+    const long = "Narva, the one with the fortress on the river";
+    s.handle(host, { type: "answer", index: s.round, mapName: long });
+    s.handle(guest, { type: "answer", index: s.round, mapName: "kohat" });
+    assert.equal(last(host, "error"), undefined);
+    const hans = last(host, "reveal").results.find(r => r.name === "Hans");
+    assert.equal(hans.mapName, long.slice(0, 40));
+    assert.equal(hans.points, 100);
 });
 
 test("reconnect during a round restores the player and resends the round", () => {

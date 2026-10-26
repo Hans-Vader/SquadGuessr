@@ -966,12 +966,13 @@ export default class Multiplayer {
         // before any map sizing: on the big screen the reveal gives the map most of the width
         $("body").addClass("mp-reveal");
 
-        // fresh = we missed the round (reconnect straight into reveal)
-        const fresh = app.currentGuess?.url !== solution.url;
+        // fresh = we missed the round (reconnect or watch straight into reveal); roundIndex is ours alone and reset by
+        // stop(), app.currentGuess may still hold a singleplayer round on the same image
+        const fresh = msg.index !== this.roundIndex || app.currentGuess?.url !== solution.url;
         // mapFinder never drew the map during the round (even if activeMap happens to be the right one)
         const needsMap = fresh || app.selectedMode === "mapFinder" || !mm.activeMap
             || mm.activeMap.name.toLowerCase() !== solution.map.toLowerCase();
-        app.currentGuess = { ...solution, submitter: fresh ? null : app.currentGuess.submitter };
+        app.currentGuess = solution;
 
         $("#gameWrapper").removeClass("no-map");
         const mapShown = needsMap ? app.setupMap() : Promise.resolve();
@@ -982,6 +983,7 @@ export default class Multiplayer {
         }
         // a next round announced from now on waits for these (fresh implies needsMap)
         if (needsMap) this.visible = Promise.all([mapShown, hintShown]);
+        $("#round").text(`${msg.index + 1}/${msg.total}`);
         mm.invalidateSize();
 
         const mine = msg.results.find(r => r.id === this.me);

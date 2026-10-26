@@ -45,45 +45,48 @@ export function penaltyPoints(distance, size) {
 }
 
 /**
- * Plain edit distance between two strings
+ * Edits between two strings: a missing, extra or wrong letter, or two neighbouring letters swapped, is one edit each
+ * (optimal string alignment distance)
  */
-export function levenshtein(a, b) {
-    const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+export function editDistance(a, b) {
+    let twoUp = [];
+    let above = Array.from({ length: b.length + 1 }, (_, j) => j);
     for (let i = 1; i <= a.length; i++) {
-        let diagonal = row[0];
-        row[0] = i;
+        const row = [i];
         for (let j = 1; j <= b.length; j++) {
-            const above = row[j];
-            row[j] = Math.min(row[j] + 1, row[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
-            diagonal = above;
+            row[j] = Math.min(above[j] + 1, row[j - 1] + 1, above[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) row[j] = Math.min(row[j], twoUp[j - 2] + 1);
         }
+        twoUp = above;
+        above = row;
     }
-    return row[b.length];
+    return above[b.length];
 }
 
 const compact = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, "");
+const MAP_NAMES = MAPS.map(m => compact(m.name));
 
 /**
  * Fewest typos between the start of a (compact) answer and a (compact) map name
  */
 function typos(typed, name) {
-    return Math.min(...Array.from({ length: typed.length + 1 }, (_, i) => levenshtein(typed.slice(0, i), name)));
+    return Math.min(...Array.from({ length: typed.length + 1 }, (_, i) => editDistance(typed.slice(0, i), name)));
 }
 
 /**
  * Does a typed answer name this map? Case, spaces, "_" and up to 2 typos are forgiven.
  * Official names go on after the map id ("Kohat Toi", "Narva Flooded"), so the answer may too; but only its start counts,
  * so listing several maps in one answer matches the first of them at most.
- * An answer that fits another map better names that one ("Kokan" is 2 typos from Kohat); layers of one map
- * ("Narva" / "Narva_f") count as the same map.
+ * The answer must fit this map better than any other ("Kokan" is 2 typos from Kohat, "Kokat" 1 from both);
+ * layers of one map ("Narva" / "Narva_f") count as the same map.
  */
 export function mapNameMatches(answer, mapName) {
     const typed = compact(answer);
     const name = compact(mapName);
     const own = typos(typed, name);
-    return own <= 2 && MAPS.map(m => compact(m.name))
+    return own <= 2 && MAP_NAMES
         .filter(other => !other.startsWith(name) && !name.startsWith(other))
-        .every(other => typos(typed, other) >= own);
+        .every(other => typos(typed, other) > own);
 }
 
 export function distance(a, b) {
