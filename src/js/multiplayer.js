@@ -161,6 +161,9 @@ export default class Multiplayer {
         // page reload during a game: rejoin silently with the stored token
         if (localStorage.getItem(`mp:${join}`) && $("#mpName").val()) return this.join(join);
         this.showEntry();
+        // meanwhile ask what the link leads to: an open lobby keeps the form, a running game offers to watch,
+        // a finished one (or an old code after PLAY AGAIN) shows its results
+        this.open({ type: "peek", code: join, token: localStorage.getItem(`mp:${join}`) ?? undefined });
     }
 
     // ===== ENTRY =====
@@ -183,6 +186,7 @@ export default class Multiplayer {
             rounds: Number($("#mpRounds").val()),
             // 0: the host moves on with NEXT
             next: $("#mpNext").val() === "auto" ? Number($("#mpNextDelay").val()) : 0,
+            keepCode: $("#mpKeepCode").val() === "1",
         };
     }
 
@@ -414,6 +418,8 @@ export default class Multiplayer {
 
         switch (msg.type) {
         case "welcome":
+            // PLAY AGAIN gave the session a new code: the token moves on to it
+            if (this.hello.code && this.hello.code !== msg.code) localStorage.removeItem(`mp:${this.hello.code}`);
             this.me = msg.playerId;
             this.code = msg.code;
             localStorage.setItem(`mp:${msg.code}`, msg.token);
@@ -462,6 +468,15 @@ export default class Multiplayer {
         case "unready":
             this.toast("info", "mp.unready");
             break;
+        case "joinable":
+            // the invite link leads into an open lobby: the form is already there, only the look ends
+            this.stop();
+            // the look (open) closed the REJOIN hint the entry form asks for
+            this.checkResume();
+            break;
+        case "ended":
+            this.onEnded(msg);
+            break;
         case "error":
             this.onError(msg.code, msg);
             break;
@@ -491,8 +506,9 @@ export default class Multiplayer {
             return this.toast("error", "mp.errors.KICKED", { seconds: details.seconds });
         }
         this.toast("error", `mp.errors.${code}`);
-        // a stored token that did not get us back in (dead session, or it expired and the name is taken now) is useless
-        if (code === "SESSION_NOT_FOUND" || code === "NAME_TAKEN") this.forget(this.hello?.code);
+        // a stored token for a dead session is useless; one turned away for a taken name is not: from an old code
+        // it still leads its player into the next lobby, under another name
+        if (code === "SESSION_NOT_FOUND") this.forget(this.hello?.code);
         const rejected = ["SESSION_NOT_FOUND", "NAME_TAKEN", "NAME_INVALID", "SESSION_FULL", "SERVER_BUSY"].includes(code);
         if (!rejected) return;
         // back to the menu: were in the session (server restart, dropped from the lobby), a big-screen link, or an invite
@@ -541,6 +557,7 @@ export default class Multiplayer {
         $("#mpNext").val(next ? "auto" : "0");
         $("#mpNextDelay").prop("hidden", !next);
         if (next) $("#mpNextDelay").val(String(next));
+        $("#mpKeepCode").val(s.settings.keepCode ? "1" : "0");
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
@@ -914,6 +931,16 @@ export default class Multiplayer {
         this.app.switchUI("results");
     }
 
+    /**
+     * A game that is over (an old link, or one past its last round): its results, and nothing more to do in it
+     */
+    onEnded(msg) {
+        // a stored token stays: once the next game is over too, this old link leads its player into the lobby after it
+        this.onFinal(msg);
+        this.stop();
+        $("body").addClass("mp-ended");
+    }
+
     renderPlayers(s) {
 
         const chip = p => $("<li>")
@@ -1047,13 +1074,14 @@ export default class Multiplayer {
         if (open && matchMedia("(pointer: fine)").matches) $("#mpChatInput").trigger("focus");
     }
 
-    describeSettings({ mode, timer, rounds, next }) {
+    describeSettings({ mode, timer, rounds, next, keepCode }) {
         const t = (key) => i18next.t(key, { ns: "common" });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
         // a no-break space keeps "10 s" together when the summary wraps
         const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}`;
+        const codeLabel = keepCode ? ` · ${t("mp.code")}: ${t("mp.codeKeep")}` : "";
+        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${codeLabel}`;
     }
 
     showEntry() {
