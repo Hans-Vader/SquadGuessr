@@ -17,6 +17,8 @@
         "takeYourTime": "慢慢来",
         "oneMinutePerGuess": "每次猜测1分钟",
         "fifteenSecondsPerGuess": "每次猜测15秒",
+        "speedBonus": "速度奖励",
+        "speedBonusHint": "又快又准（超过 75 分）：最多额外获得 25 分",
         "buttons": {
             "back": "返回",
             "play": "开始游戏",

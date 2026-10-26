@@ -67,10 +67,11 @@ export function cleanText(text, max) {
 }
 
 export function validSettings(s) {
-    // an older cached client sends no next, no keepCode and nothing about teams
+    // an older cached client sends no next, no keepCode, no speedBonus and nothing about teams
     return Boolean(s) && MODES.includes(s.mode) && TIMERS.includes(s.timer) && ROUNDS.includes(s.rounds)
         && (s.next === undefined || NEXTS.includes(s.next))
         && (s.keepCode === undefined || typeof s.keepCode === "boolean")
+        && (s.speedBonus === undefined || typeof s.speedBonus === "boolean")
         && validTeamSettings(s);
 }
 

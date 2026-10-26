@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pointsForDistance, editDistance, mapNameMatches, distance, mapSize, scoreAnswer, rankMoves, penaltyPoints, MAX_PENALTY, centroid } from "../src/js/scoring.js";
+import { pointsForDistance, editDistance, mapNameMatches, distance, mapSize, scoreAnswer, rankMoves, penaltyPoints, MAX_PENALTY, centroid, speedBonus } from "../src/js/scoring.js";
 import { MAPS, initMapsProperties } from "../src/js/data/maps.js";
 
 test("pointsForDistance on a 3000m map", () => {
@@ -130,4 +130,27 @@ test("penaltyPoints: 0 up to the last scoring step, then down to −50 at three 
 test("centroid is the plain average position", () => {
     assert.deepEqual(centroid([{ lat: -100, lng: 50 }]), { lat: -100, lng: 50 });
     assert.deepEqual(centroid([{ lat: 0, lng: 0 }, { lat: -100, lng: 300 }, { lat: -200, lng: 0 }]), { lat: -100, lng: 100 });
+});
+
+test("speedBonus: every point above 75 counts once more, scaled by the share of time left", () => {
+    assert.equal(speedBonus(100, 1), 25);
+    assert.equal(speedBonus(100, 0.5), 13);
+    assert.equal(speedBonus(90, 0.8), 12);
+    assert.equal(speedBonus(76, 1), 1);
+    assert.equal(speedBonus(75, 1), 0);
+    assert.equal(speedBonus(40, 1), 0);
+    assert.equal(speedBonus(100, 0), 0);
+});
+
+test("speedBonus: the time left counts as 0–1, so an answer in the grace second gets nothing", () => {
+    assert.equal(speedBonus(100, -0.02), 0);
+    assert.equal(speedBonus(100, 1.01), 25);
+});
+
+test("rankMoves counts the speed bonus as part of the round", () => {
+    // before: B 150, A 140; A passes B only thanks to the bonus
+    assert.deepEqual(rankMoves([
+        { id: "A", score: 245, points: 90, bonus: 15 },
+        { id: "B", score: 240, points: 90, bonus: 0 },
+    ]), { A: "up", B: "down" });
 });

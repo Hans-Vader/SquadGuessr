@@ -17,6 +17,8 @@
         "takeYourTime": "Take your time",
         "oneMinutePerGuess": "1mn per guess",
         "fifteenSecondsPerGuess": "15s per guess",
+        "speedBonus": "Speed bonus",
+        "speedBonusHint": "Quick and close (over 75 points): up to 25 extra points",
         "buttons": {
             "back": "BACK",
             "play": "PLAY",
