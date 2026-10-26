@@ -405,6 +405,9 @@ export default class Multiplayer {
         case "left":
             this.toast("info", "mp.left", { name: msg.name });
             break;
+        case "unready":
+            this.toast("info", "mp.unready");
+            break;
         case "error":
             this.onError(msg.code);
             break;
@@ -940,8 +943,9 @@ export default class Multiplayer {
         this.qrCode = this.code;
         const url = `${location.origin}/?join=${this.code}`;
         QRCode.toCanvas(document.getElementById("mpQr"), url, { width: 220, margin: 1 });
-        $("#mpJoinUrl").text(url);
-        $("#mpWatchUrl").text(`${location.origin}/?watch=${this.code}`);
+        const watchUrl = `${location.origin}/?watch=${this.code}`;
+        $("#mpJoinUrl").attr("href", url).text(url);
+        $("#mpWatchUrl").attr("href", watchUrl).text(watchUrl);
     }
 
     copyLink(selector, key) {
