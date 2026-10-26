@@ -275,6 +275,9 @@ export default class Multiplayer {
         this.watching = hello.type === "watch";
         this.active = true;
         this.retry = 0;
+        // per join, not per socket: a reconnect keeps it, or a running countdown falls back to the raw local clock
+        // until the first message (the whole outage if retries fail) and jumps by however far that clock is off
+        this.offset = null;
         $("body").addClass("mp-active");
         this.connect();
     }
@@ -282,7 +285,6 @@ export default class Multiplayer {
     connect() {
         const ws = new WebSocket(this.socketUrl());
         this.ws = ws;
-        this.offset = null;
         ws.onopen = () => {
             if (this.ws !== ws) return;
             this.retry = 0;
