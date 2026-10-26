@@ -1073,7 +1073,8 @@ export default class Multiplayer {
         clearInterval(this.countdown);
         // no prepare follows the last round, so its preloaded images (and their retries) would outlive the game
         this.preloader.keep([]);
-        const teamPlay = Boolean(this.state?.settings.team);
+        // from the ranking itself, not the state: an old game's link (onEnded) shows its results without one
+        const teamPlay = msg.ranking.some(r => r.members);
         const rows = teamPlay ? msg.ranking.map(r => ({ ...r, team: r.id, name: teamName(r.id) })) : msg.ranking;
         const mine = teamPlay ? this.myTeam() : this.me;
         this.renderRanking($("#mpFinalRanking"), rows, msg.winners, {}, mine);
