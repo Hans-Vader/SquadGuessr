@@ -153,7 +153,7 @@ export default class SquadGuessr {
 
     setupNavigationButtons() {
         this.BUTTON_TIMER.on("click", () => { this.switchUI("timer"); });
-        this.BUTTON_MENU.on("click", () => { this.mp.active ? this.mp.leave() : this.switchUI("menu"); });
+        this.BUTTON_MENU.on("click", () => { this.mp.active ? this.mp.leave() : this.toMenu(); });
         this.BUTTON_BACK.on("click", () => { this.switchUI("menu"); });
         this.BUTTON_PLAYAGAIN.on("click", () => this.mp.active ? this.mp.send({ type: "lobby" }) : this.startNewGame());
         this.BUTTON_SHARE.on("click", () => this.copyResults());
@@ -171,6 +171,8 @@ export default class SquadGuessr {
      */
     toMenu() {
         history.replaceState({}, "", "/");
+        // results of a finished multiplayer game (opened through its old link) are left behind too
+        $("body").removeClass("mp-ended");
         this.switchUI("menu");
     }
 
@@ -546,11 +548,27 @@ export default class SquadGuessr {
     }
 
     updateTimerDisplay(seconds) {
+        // warnings only while the guess is still missing: a sent multiplayer answer just waits for the others
+        // (singleplayer stops the timer on the guess), a placed marker counts when the time runs out. Find the Map has
+        // no marker: its typed name counts too, but half typed it scores 0, so the warnings stay
+        const open = !this.mp.answered && !this.minimap.guessMarker;
+        const critical = open && seconds > 0 && seconds <= 5;
         $("#totalSeconds").html(seconds);
+        $("#timerWrapper").toggleClass("warn", open && seconds <= 10).toggleClass("critical", open && seconds <= 5);
+        // the map glows too: that is where the eyes are when the time runs out
+        $("body").toggleClass("timer-critical", critical);
+        document.title = critical ? `⏰ ${seconds} s · SquadGuessr` : "SquadGuessr";
+        // a short buzz once per second, not on every multiplayer tick (250 ms), none for the value a round starts with
+        // (null); phones only in effect: computers have nothing to vibrate, iOS has no vibrate()
+        if (critical && seconds < this.timerShown) navigator.vibrate?.(60);
+        this.timerShown = seconds;
     }
 
     stopTimer() {
-        $("#timerWrapper").prop("hidden", true);
+        $("#timerWrapper").prop("hidden", true).removeClass("warn critical");
+        $("body").removeClass("timer-critical");
+        document.title = "SquadGuessr";
+        this.timerShown = null;
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;
