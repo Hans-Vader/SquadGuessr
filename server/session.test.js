@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS, HANDOVER_MS, GRACE_MS } from "./session.js";
+import { Session, MAX_PLAYERS, RECONNECT_MS, LOAD_FIRST_MS, LOAD_MS, COUNTDOWN_READY_MS, COUNTDOWN_FORCED_MS, KICK_WAIT_MS, HANDOVER_MS, MAX_PAST, GRACE_MS } from "./session.js";
+import { CHAT_MAX, CHAT_GAP_MS, CHAT_HISTORY } from "../src/js/chatLimits.js";
 import { mapSize } from "../src/js/scoring.js";
 
-const CLASSIC = { mode: "classic", timer: 0, rounds: 3, next: 0 };
+const CLASSIC = { mode: "classic", timer: 0, rounds: 3, next: 0, keepCode: false };
 const GUESSES = [
     { map: "Narva", url: "/img/guesses/a.webp", lat: -100, lng: 200, submitter: "Dan" },
     { map: "GooseBay", url: "/img/guesses/b.webp", lat: -300, lng: 400 },
@@ -13,9 +14,12 @@ const GUESSES = [
 function setup(settings = CLASSIC) {
     let t = 1000;
     const sent = [];
-    const s = new Session("ABCD", { send: (conn, msg) => sent.push({ conn, msg }), now: () => t });
+    let codes = 0;
+    const s = new Session("ABCD", { send: (conn, msg) => sent.push({ conn, msg }), now: () => t, newCode: () => `NEW${++codes}` });
     const all = (conn, type) => sent.filter(x => x.conn === conn && x.msg.type === type).map(x => x.msg);
     const last = (conn, type) => all(conn, type).at(-1);
+    // what the players wrote, without the notices of who came and went
+    const said = (conn) => all(conn, "chat").filter(m => !m.system).map(m => m.text);
     const host = { id: "host" };
     s.create(host, { name: "Hans", settings });
     const advance = (ms) => { t += ms; };
@@ -26,7 +30,7 @@ function setup(settings = CLASSIC) {
         advance(COUNTDOWN_FORCED_MS);
         s.tick();
     };
-    return { s, sent, host, all, last, advance, begin };
+    return { s, sent, host, all, last, said, advance, begin };
 }
 
 function withGuest(settings) {
@@ -47,13 +51,20 @@ function started(settings) {
     return ctx;
 }
 
-// the host plays the game through to the final ranking
-function finish(s, host) {
-    for (let i = 0; i < 3; i++) {
+// plays the running game on to its last reveal, where it counts as over (players may look at their results)
+function toLastReveal(s, host) {
+    while (s.round + 1 < s.guesses.length) {
         s.handle(host, { type: "endRound" });
         readyAll(s, s.round + 1);
         s.handle(host, { type: "next" });
     }
+    s.handle(host, { type: "endRound" });
+}
+
+// the host plays the game through to the final ranking
+function finish(s, host) {
+    toLastReveal(s, host);
+    s.handle(host, { type: "next" });
 }
 
 test("create makes the creator host and player", () => {
@@ -132,12 +143,13 @@ test("only the host may control the game", () => {
 test("host can change settings in the lobby", () => {
     const { s, host, guest, last } = withGuest();
     s.handle(host, { type: "settings", settings: { mode: "mapFinder", timer: 20, rounds: 5, next: 15 } });
-    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 20, rounds: 5, next: 15 });
+    assert.deepEqual(last(guest, "state").settings, { mode: "mapFinder", timer: 20, rounds: 5, next: 15, keepCode: false });
 });
 
-test("settings without next (an older cached client) leave the next round to the host", () => {
+test("settings without next or keepCode (an older cached client) leave the next round to the host and renew the code", () => {
     const { last, host } = setup({ mode: "classic", timer: 0, rounds: 3 });
     assert.equal(last(host, "state").settings.next, 0);
+    assert.equal(last(host, "state").settings.keepCode, false);
 });
 
 test("start rejects guesses that do not match settings.rounds", () => {
@@ -478,17 +490,27 @@ test("leaving the lobby frees the name and the slot", () => {
     assert.equal(s.join(again, { name: "Max" }), true);
 });
 
-test("the host can kick a player from the lobby: they are told, their old token stays out, name and slot are free", () => {
-    const { s, host, guest, last } = withGuest();
+test("a kicked player is told and may come back only after KICK_WAIT_MS: not on that device, not under that name", () => {
+    const { s, host, guest, last, advance } = withGuest();
     const { playerId, token } = last(guest, "welcome");
     s.handle(host, { type: "kick", playerId });
-    assert.equal(last(guest, "error").code, "KICKED");
+    assert.deepEqual(last(guest, "error"), { type: "error", code: "KICKED", seconds: KICK_WAIT_MS / 1000 });
     assert.deepEqual(last(host, "state").players.map(p => p.name), ["Hans"]);
-    // offline at the kick, they never got the message: their reconnect must not quietly undo it
+    // offline at the kick, they never got the message: their reconnect must not quietly undo it, whatever name it brings
     const back = {};
-    assert.equal(s.join(back, { name: "Max", token }), false);
+    assert.equal(s.join(back, { name: "Maxi", token }), false);
     assert.equal(last(back, "error").code, "KICKED");
-    assert.equal(s.join({}, { name: "Max" }), true);
+    // another device under the same name (any case) is told how long is left
+    advance(10 * 1000);
+    const other = {};
+    assert.equal(s.join(other, { name: "max" }), false);
+    assert.deepEqual(last(other, "error"), { type: "error", code: "KICKED", seconds: 20 });
+    // the slot is free for anybody else
+    assert.equal(s.join({}, { name: "Ana" }), true);
+    advance(KICK_WAIT_MS - 10 * 1000);
+    const again = {};
+    assert.equal(s.join(again, { name: "Max", token }), true);
+    assert.notEqual(last(again, "welcome").token, token);
 });
 
 test("only the host kicks, never themselves, and only in the lobby", () => {
@@ -1045,6 +1067,300 @@ test("a guest whose connection dropped in the lobby keeps their place through a 
     const phone = {};
     assert.equal(s.join(phone, { token }), true);
     assert.equal(last(phone, "welcome").playerId, last(guest, "welcome").playerId);
+});
+
+test("a chat line reaches every player, cleaned and capped, but never a watcher", () => {
+    const { s, host, guest, last, all } = withGuest();
+    const tv = {};
+    s.watch(tv);
+    s.handle(guest, { type: "chat", text: "  gg\u200b  wp " });
+    assert.deepEqual(last(host, "chat"), { type: "chat", id: last(guest, "welcome").playerId, name: "Max", text: "gg wp" });
+    assert.equal(last(guest, "chat").text, "gg wp");
+    s.handle(host, { type: "chat", text: "x".repeat(CHAT_MAX + 50) });
+    assert.equal(last(guest, "chat").text, "x".repeat(CHAT_MAX));
+    assert.equal(all(tv, "chat").length, 0);
+});
+
+test("empty chat lines and lines from whoever still guesses are ignored silently", () => {
+    const { s, host, guest, said, last } = started();
+    s.handle(guest, { type: "chat", text: "psst, it is Narva" });
+    s.handle(guest, { type: "chat", text: 42 });
+    s.handle(host, { type: "endRound" });
+    s.handle(guest, { type: "chat", text: "  \u200b " });
+    assert.deepEqual(said(host), []);
+    assert.equal(last(guest, "error"), undefined);
+    // nothing ignored used up the guest's turn
+    s.handle(guest, { type: "chat", text: "close one" });
+    assert.equal(last(host, "chat").text, "close one");
+});
+
+// Hans, Max and Ida in round 1, after a chat line in the lobby: one answer does not end the round
+function threeInRound() {
+    const ctx = withGuest();
+    ctx.ida = {};
+    ctx.s.join(ctx.ida, { name: "Ida" });
+    ctx.s.handle(ctx.host, { type: "chat", text: "hi" });
+    ctx.advance(CHAT_GAP_MS);
+    ctx.begin();
+    ctx.answer = (conn) => ctx.s.handle(conn, { type: "answer", index: ctx.s.round, lat: -100, lng: 200 });
+    ctx.texts = ctx.said;
+    return ctx;
+}
+
+test("while a round runs, whoever answered chats with the others who answered; who still guesses neither reads nor writes", () => {
+    const { s, host, guest, ida, answer, texts, last } = threeInRound();
+    answer(host);
+    answer(ida);
+    s.handle(guest, { type: "chat", text: "Narva?" });
+    s.handle(host, { type: "chat", text: "gg" });
+    assert.deepEqual([texts(host), texts(ida), texts(guest)], [["hi", "gg"], ["hi", "gg"], ["hi"]]);
+    assert.equal(last(guest, "error"), undefined);
+});
+
+test("whoever answers gets the lines written while they guessed, and nothing twice", () => {
+    const { s, host, guest, ida, answer, texts, advance } = threeInRound();
+    answer(host);
+    s.handle(host, { type: "chat", text: "a" });
+    advance(CHAT_GAP_MS);
+    s.handle(host, { type: "chat", text: "b" });
+    answer(guest);
+    assert.equal(s.phase, "round");
+    assert.deepEqual(texts(guest), ["hi", "a", "b"]);
+    assert.deepEqual(texts(ida), ["hi"]);
+});
+
+test("the reveal brings the round's lines to whoever never answered", () => {
+    const { s, host, guest, ida, answer, texts } = threeInRound();
+    answer(host);
+    s.handle(host, { type: "chat", text: "a" });
+    s.handle(host, { type: "endRound" });
+    assert.equal(s.phase, "reveal");
+    assert.deepEqual([texts(guest), texts(ida)], [["hi", "a"], ["hi", "a"]]);
+});
+
+test("back during a round, the history holds the round's lines only for whoever answered", () => {
+    const { s, host, guest, ida, answer, last } = threeInRound();
+    const rejoin = (conn) => {
+        const { token } = last(conn, "welcome");
+        s.disconnect(conn);
+        const phone = {};
+        s.join(phone, { token });
+        return last(phone, "welcome").chat.filter(m => !m.system).map(m => m.text);
+    };
+    answer(host);
+    answer(ida);
+    s.handle(host, { type: "chat", text: "a" });
+    assert.deepEqual([rejoin(guest), rejoin(ida)], [["hi"], ["hi", "a"]]);
+});
+
+test("the server allows a player a chat line every half CHAT_GAP_MS and tells whoever writes faster", () => {
+    // the client itself waits the whole CHAT_GAP_MS: the other half is room for the network delaying one line more than the next
+    const { s, host, guest, said, last, advance } = withGuest();
+    s.handle(guest, { type: "chat", text: "a" });
+    advance(CHAT_GAP_MS / 2 - 1);
+    s.handle(guest, { type: "chat", text: "b" });
+    assert.equal(last(guest, "error").code, "CHAT_TOO_FAST");
+    // one player's limit holds nobody else up
+    s.handle(host, { type: "chat", text: "c" });
+    advance(1);
+    s.handle(guest, { type: "chat", text: "d" });
+    assert.deepEqual(said(host), ["a", "c", "d"]);
+});
+
+test("whoever joins or comes back gets the last CHAT_HISTORY lines with the welcome", () => {
+    const { s, host, guest, last, advance } = withGuest();
+    for (let i = 0; i < CHAT_HISTORY + 5; i++) {
+        s.handle(host, { type: "chat", text: `line ${i}` });
+        advance(CHAT_GAP_MS);
+    }
+    const late = {};
+    s.join(late, { name: "Ana" });
+    const history = last(late, "welcome").chat;
+    assert.equal(history.length, CHAT_HISTORY);
+    assert.deepEqual(history[0], { id: last(host, "welcome").playerId, name: "Hans", text: "line 5" });
+    assert.equal(history.at(-1).text, `line ${CHAT_HISTORY + 4}`);
+    const token = last(guest, "welcome").token;
+    s.disconnect(guest);
+    const phone = {};
+    s.join(phone, { token });
+    // Ana's arrival came after her welcome: it is the history's newest line now
+    assert.deepEqual(last(phone, "welcome").chat, [...history.slice(1), { system: "joined", name: "Ana" }]);
+});
+
+test("coming into, leaving and being kicked from the lobby is a notice in the chat; a reload or a comeback under the same name are not", () => {
+    const { s, host, guest, all, last } = withGuest();
+    const tv = {};
+    s.watch(tv);
+    const ida = {};
+    s.join(ida, { name: "Ida" });
+    assert.deepEqual(last(host, "chat"), { type: "chat", system: "joined", name: "Ida" });
+    s.handle(guest, { type: "leave" });
+    assert.deepEqual(last(ida, "chat"), { type: "chat", system: "left", name: "Max" });
+    // a reload, and a comeback under the same name from another device
+    const { token } = last(ida, "welcome");
+    s.disconnect(ida);
+    const phone = {};
+    s.join(phone, { token });
+    s.disconnect(phone);
+    const laptop = {};
+    s.join(laptop, { name: "ida" });
+    s.handle(host, { type: "kick", playerId: last(laptop, "welcome").playerId });
+    assert.deepEqual(all(host, "chat").map(m => `${m.system} ${m.name}`), ["joined Max", "joined Ida", "left Max", "kicked ida"]);
+    assert.equal(all(tv, "chat").length, 0);
+});
+
+test("a flood of chat lines is turned away before its text is even looked at", () => {
+    const { s, guest, last } = withGuest();
+    s.handle(guest, { type: "chat", text: "a" });
+    // nothing usable in it, but too fast comes first: cleaning a full frame is the expensive part
+    s.handle(guest, { type: "chat", text: "\u200b" });
+    assert.equal(last(guest, "error").code, "CHAT_TOO_FAST");
+});
+
+test("a name without a letter or a digit is turned away as NAME_INVALID, on create and on join", () => {
+    const sent = [];
+    const fresh = new Session("WXYZ", { send: (conn, msg) => sent.push({ conn, msg }) });
+    assert.equal(fresh.create({}, { name: "🐺🐺", settings: CLASSIC }), false);
+    assert.equal(sent.at(-1).msg.code, "NAME_INVALID");
+    // bad settings stay INVALID
+    assert.equal(fresh.create({}, { name: "Hans", settings: { ...CLASSIC, rounds: 7 } }), false);
+    assert.equal(sent.at(-1).msg.code, "INVALID");
+    const { s, last } = setup();
+    const guest = {};
+    assert.equal(s.join(guest, { name: "---" }), false);
+    assert.equal(last(guest, "error").code, "NAME_INVALID");
+});
+
+test("a look-alike of a player's name is that name: Hans with an invisible mark is NAME_TAKEN", () => {
+    const { s, last } = setup();
+    const fake = {};
+    assert.equal(s.join(fake, { name: "Hans\u034f" }), false);
+    assert.equal(last(fake, "error").code, "NAME_TAKEN");
+});
+
+// ===== PLAY AGAIN: the next game gets a new code, the old one shows the results =====
+
+test("play again gives the next game a new code: who is still there is welcomed with it and keeps their token", () => {
+    const { s, host, guest, last } = started();
+    const tv = {};
+    s.watch(tv);
+    const token = last(guest, "welcome").token;
+    toLastReveal(s, host);
+    // the first one done with the results takes everyone along; who follows later changes the code no more
+    s.handle(guest, { type: "lobby" });
+    assert.equal(s.code, "NEW1");
+    s.handle(host, { type: "lobby" });
+    assert.equal(s.code, "NEW1");
+    assert.equal(last(guest, "welcome").code, "NEW1");
+    assert.equal(last(guest, "welcome").token, token);
+    assert.equal(last(host, "welcome").isHost, true);
+    assert.equal(last(guest, "state").code, "NEW1");
+    assert.equal(last(tv, "state").code, "NEW1");
+});
+
+test("a stranger with the old code gets the results of that game instead of a place in the next one", () => {
+    const { s, host, guest, last } = started();
+    s.handle(guest, { type: "answer", index: 0, lat: GUESSES[0].lat, lng: GUESSES[0].lng });
+    toLastReveal(s, host);
+    s.handle(host, { type: "next" });
+    s.handle(host, { type: "lobby" });
+    const eve = {};
+    assert.equal(s.join(eve, { name: "Eve" }, "ABCD"), false);
+    const ended = last(eve, "ended");
+    assert.deepEqual(ended.ranking.map(r => [r.name, r.score]), [["Max", 100], ["Hans", 0]]);
+    assert.deepEqual(ended.winners, [last(guest, "welcome").playerId]);
+    assert.equal(s.players.size, 2);
+});
+
+test("a player of the old game who was away during play again gets into the next lobby with the old code, not once it runs", () => {
+    const { s, host, guest, last, begin } = withGuest();
+    const ann = {};
+    s.join(ann, { name: "Ann" });
+    begin();
+    const maxToken = last(guest, "welcome").token;
+    const annToken = last(ann, "welcome").token;
+    toLastReveal(s, host);
+    s.disconnect(guest);
+    s.disconnect(ann);
+    s.handle(host, { type: "lobby" });
+    // their invite link asks with the token, and learns what joining brings
+    const look = {};
+    s.peek(look, "ABCD", maxToken);
+    assert.ok(last(look, "joinable"));
+    // back while the next game is still in its lobby: in, under the new code
+    const phone = {};
+    assert.equal(s.join(phone, { name: "Max", token: maxToken }, "ABCD"), true);
+    assert.equal(last(phone, "welcome").code, "NEW1");
+    // back once it runs: too late, the old game's results
+    begin();
+    const glance = {};
+    s.peek(glance, "ABCD", annToken);
+    assert.ok(last(glance, "ended"));
+    const tablet = {};
+    assert.equal(s.join(tablet, { name: "Ann", token: annToken }, "ABCD"), false);
+    assert.equal(last(tablet, "ended").ranking.length, 3);
+});
+
+test("with keepCode play again keeps the code: it leads everyone into the next lobby instead of to the results", () => {
+    const { s, host, guest, last } = started({ ...CLASSIC, keepCode: true });
+    toLastReveal(s, host);
+    s.handle(guest, { type: "lobby" });
+    assert.equal(s.code, "ABCD");
+    assert.equal(s.past.size, 0);
+    assert.equal(last(guest, "welcome").code, "ABCD");
+    const eve = {};
+    assert.equal(s.join(eve, { name: "Eve" }, "ABCD"), true);
+});
+
+test("a session keeps the results of its last MAX_PAST games: the oldest finished game's link stops working first", () => {
+    const { s, host, begin } = withGuest();
+    for (let i = 0; i <= MAX_PAST; i++) {
+        begin();
+        toLastReveal(s, host);
+        s.handle(host, { type: "lobby" });
+    }
+    assert.deepEqual([...s.past.keys()], Array.from({ length: MAX_PAST }, (_, i) => `NEW${i + 1}`));
+});
+
+test("joining a finished game shows newcomers its results, while its own players still get back in", () => {
+    const { s, host, guest, last } = started();
+    const token = last(guest, "welcome").token;
+    toLastReveal(s, host);
+    const eve = {};
+    assert.equal(s.join(eve, { name: "Eve" }), false);
+    assert.equal(last(eve, "ended").ranking.length, 2);
+    s.handle(host, { type: "next" });
+    const ann = {};
+    assert.equal(s.join(ann, { name: "Ann" }), false);
+    assert.equal(last(ann, "ended").ranking.length, 2);
+    const phone = {};
+    assert.equal(s.join(phone, { name: "Max", token }), true);
+    assert.ok(last(phone, "final"));
+});
+
+test("peek tells an invite link what is behind a code without taking a place: open lobby, running game or over", () => {
+    const { s, host, sent, advance } = withGuest();
+    const peek = (code) => {
+        const conn = {};
+        s.peek(conn, code);
+        const reply = sent.find(x => x.conn === conn).msg;
+        return reply.type === "error" ? reply.code : reply.type;
+    };
+    assert.equal(peek("ABCD"), "joinable");
+    s.handle(host, { type: "start", guesses: GUESSES });
+    // the host can still call the start off: the form stays
+    assert.equal(peek("ABCD"), "joinable");
+    readyAll(s, 0);
+    advance(COUNTDOWN_FORCED_MS);
+    s.tick();
+    assert.equal(peek("ABCD"), "GAME_RUNNING");
+    toLastReveal(s, host);
+    assert.equal(peek("ABCD"), "ended");
+    s.handle(host, { type: "lobby" });
+    assert.equal(peek("ABCD"), "ended");
+    assert.equal(peek("NEW1"), "joinable");
+    assert.equal(s.players.size, 2);
+    assert.equal(s.watchers.size, 0);
 });
 
 test("check tells a token that can come back where the game is, and changes nothing", () => {

@@ -310,6 +310,18 @@
     height: 100%;
     display: flex;
     flex-direction: column;
+    position: relative;
+}
+
+// last seconds of a timed round (timer-pulse / timer-glow in footer.scss): above the map, never in the way of a click
+body.timer-critical #leftSide::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 3px #E63435, inset 0 0 40px rgba(230, 52, 53, 0.6);
+    animation: timer-glow 1s ease-in-out infinite;
 }
 
 #mapName {
