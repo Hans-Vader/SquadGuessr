@@ -94,15 +94,15 @@ export function scoreAnswer(mode, guess, answer) {
     return { distance: d, points: pointsForDistance(d, mapSize(guess.map)).points };
 }
 
-// the speed bonus starts above this many points: a quick answer that is not close earns nothing extra
-const BONUS_FROM = 75;
+// the speed bonus is at most this share of the points: the less accurate the answer, the less a quick one earns
+const BONUS_SHARE = 0.25;
 
 /**
- * Extra points for a quick answer: every point above BONUS_FROM once more, scaled by the share of time `left` (0–1).
- * No jump at the threshold, and at most 25 on top of a perfect 100
+ * Extra points for a quick answer: BONUS_SHARE of the points once more, scaled by the share of time `left` (0–1).
+ * At most 25 on top of a perfect 100
  */
 export function speedBonus(points, left) {
-    return Math.round(Math.max(0, points - BONUS_FROM) * Math.min(1, Math.max(0, left)));
+    return Math.round(points * BONUS_SHARE * Math.min(1, Math.max(0, left)));
 }
 
 /**
