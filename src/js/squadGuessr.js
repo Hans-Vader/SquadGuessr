@@ -12,6 +12,7 @@ import Submit from "./submit.js";
 import Review from "./review.js";
 import { copyText } from "./clipboard.js";
 import { retryDelay } from "./preloader.js";
+import { secondsUntil } from "./clock.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -518,12 +519,19 @@ export default class SquadGuessr {
 
     updateFinalScore() {
         $("#scoreValue").html(this.score);
-        this.saveTopScore(this.selectedMode, this.score);
+        this.saveTopScore(this.selectedMode, this.recordScore());
+    }
+
+    /**
+     * The game's score without the speed bonus: records stay comparable with the games played without it
+     */
+    recordScore() {
+        return this.score - this.gameData.reduce((sum, guess) => sum + (guess.bonus ?? 0), 0);
     }
 
     checkNewRecord() {
-        if (this.score > this.topScores[this.selectedMode]) {
-            this.topScores[this.selectedMode] = this.score;
+        if (this.recordScore() > this.topScores[this.selectedMode]) {
+            this.topScores[this.selectedMode] = this.recordScore();
             $(".new-record").fadeIn();
         } else {
             $(".new-record").hide();
@@ -533,23 +541,24 @@ export default class SquadGuessr {
     // ===== TIMER MANAGEMENT =====
 
     startTimeAttackTimer(duration) {
-        let remaining = duration;
+        // the display and the round's end go by the same clock as the speed bonus: counted ticks would fall behind
+        // whenever the browser pauses timers (an app in the background), and show time the bonus no longer has
         this.roundEndsAt = Date.now() + duration * 1000;
         $("#timerWrapper").prop("hidden", false).toggleClass("bonus", this.bonusOn);
 
         if (this.timerInterval) clearInterval(this.timerInterval);
 
-        this.updateTimerDisplay(remaining);
+        this.updateTimerDisplay(duration);
 
         this.timerInterval = setInterval(() => {
-            remaining--;
+            const remaining = secondsUntil(this.roundEndsAt, 0, Date.now());
             this.updateTimerDisplay(remaining);
 
             if (remaining <= 0) {
                 this.stopTimer();
                 this.onTimeAttackEnd();
             }
-        }, 1000);
+        }, 250);
     }
 
     updateTimerDisplay(seconds) {
