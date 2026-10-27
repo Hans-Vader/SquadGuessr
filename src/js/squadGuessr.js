@@ -230,10 +230,10 @@ export default class SquadGuessr {
     }
 
     setupGuessInput() {
-        // Enable/disable guess button based on input text
+        // Enable/disable guess button based on input text, never again once the round is scored
         this.INPUT_GUESS.on("input", () => {
             const hasText = this.INPUT_GUESS.val().trim() !== "";
-            this.BUTTON_GUESS.prop("disabled", !hasText);
+            this.BUTTON_GUESS.prop("disabled", !hasText || Boolean(this.solutionMarker));
         });
 
         // Handle Enter key to submit
@@ -333,8 +333,9 @@ export default class SquadGuessr {
             $("#gameWrapper").removeClass("no-map");
         }
 
+        // a guess placed before the hint loaded has already ended the round: no countdown on its solution
         this.setupHint().then(() => {
-            if (this.selectedTimer > 0) this.startTimeAttackTimer(this.selectedTimer);
+            if (this.selectedTimer > 0 && !this.solutionMarker) this.startTimeAttackTimer(this.selectedTimer);
         });
 
     }
@@ -426,7 +427,8 @@ export default class SquadGuessr {
 
     handleGuess() {
         if (this.mp.active) return this.mp.submitAnswer();
-        if (!this.currentGuess) return;
+        // a round shows its solution once it is scored: a timeout or a re-enabled button cannot score it again
+        if (!this.currentGuess || this.solutionMarker) return;
 
         this.stopTimer();
 
