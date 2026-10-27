@@ -132,13 +132,13 @@ test("centroid is the plain average position", () => {
     assert.deepEqual(centroid([{ lat: 0, lng: 0 }, { lat: -100, lng: 300 }, { lat: -200, lng: 0 }]), { lat: -100, lng: 100 });
 });
 
-test("speedBonus: every point above 75 counts once more, scaled by the share of time left", () => {
+test("speedBonus: a quarter of the points once more, scaled by the share of time left", () => {
     assert.equal(speedBonus(100, 1), 25);
     assert.equal(speedBonus(100, 0.5), 13);
-    assert.equal(speedBonus(90, 0.8), 12);
-    assert.equal(speedBonus(76, 1), 1);
-    assert.equal(speedBonus(75, 1), 0);
-    assert.equal(speedBonus(40, 1), 0);
+    assert.equal(speedBonus(85, 0.5), 11);
+    assert.equal(speedBonus(60, 1), 15);
+    assert.equal(speedBonus(30, 1), 8);
+    assert.equal(speedBonus(0, 1), 0);
     assert.equal(speedBonus(100, 0), 0);
 });
 
