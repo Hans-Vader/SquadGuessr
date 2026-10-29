@@ -120,37 +120,45 @@ export const squadMinimap = Map.extend({
      * @param {Number} [failures] - failed attempts so far, for the retry delay
      */
     changeLayer: function(failures = 0) {
-        const OLDLAYER = this.activeLayer;
-
-        // one spinner for the layer on screen: a replaced layer still downloading (next round before its map
-        // arrived) must not keep it spinning over the map that is already there
-        if (!this._spinner) this.spin(true, this.spinOptions);
-
         const layer = new ImageOverlay(basemapUrl(this.activeMap), this.imageBounds);
-        this.activeLayer = layer;
+
+        // the spinner runs while a layer is pending. A pending layer that gets replaced (next round before its map
+        // arrived) is dropped: its download stops and it can no longer fade in over the newer map later
+        if (this.pendingLayer) {
+            this.pendingLayer.getElement().src = Util.emptyImageUrl;
+            this.layerGroup.removeLayer(this.pendingLayer);
+        } else {
+            this.spin(true, this.spinOptions);
+        }
+
+        this.activeLayer = this.pendingLayer = layer;
         layer.addTo(this.layerGroup);
         $(layer.getElement()).css("opacity", 0);
 
         return new Promise((resolve) => {
             layer.once("load", () => {
                 resolve();
-                // Animate the opacity of the new layer
-                $(layer.getElement()).fadeTo(700, 1, () => {
-                    if (OLDLAYER) OLDLAYER.remove();
-                    if (this.activeLayer === layer) this.spin(false);
-                });
+                if (this.pendingLayer !== layer) return;
+                this.pendingLayer = null;
+                this.spin(false);
+                // fade in over the maps shown so far, then remove them
+                const older = this.layerGroup.getLayers().filter(l => l !== layer);
+                $(layer.getElement()).fadeTo(700, 1, () => older.forEach(l => this.layerGroup.removeLayer(l)));
             });
 
             layer.once("error", (e) => {
-                console.error("Error loading", e.sourceTarget._url);
-                if (OLDLAYER) OLDLAYER.remove();
-                if (this.activeLayer === layer) this.spin(false);
                 resolve();
-                // a newer changeLayer (next round, another map) replaces this layer and so ends the retries; a
-                // multiplayer Find the Map round hides the map and its reveal loads the map again anyway
+                if (this.pendingLayer !== layer) return;
+                console.error("Error loading", e.sourceTarget._url);
+                // no map rather than the previous one; the spinner stays while a retry is pending
+                this.layerGroup.clearLayers();
+                // a newer changeLayer (next round, another map) ends the retries; a hidden map (other screen, or a
+                // multiplayer Find the Map round, whose reveal loads the map again anyway) is not retried
                 setTimeout(() => {
-                    const hidden = App.mp.active && $("#gameWrapper").hasClass("no-map");
-                    if (this.activeLayer === layer && $("#map_ui").is(":visible") && !hidden) this.changeLayer(failures + 1);
+                    if (this.pendingLayer !== layer) return;
+                    if ($(this.getContainer()).is(":visible")) return this.changeLayer(failures + 1);
+                    this.pendingLayer = null;
+                    this.spin(false);
                 }, retryDelay(failures + 1));
             });
         });
