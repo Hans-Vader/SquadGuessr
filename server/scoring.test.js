@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pointsForDistance, levenshtein, mapNameMatches, distance, mapSize, scoreAnswer, rankMoves, penaltyPoints, MAX_PENALTY, centroid } from "../src/js/scoring.js";
+import { pointsForDistance, editDistance, mapNameMatches, distance, mapSize, scoreAnswer, rankMoves, penaltyPoints, MAX_PENALTY, centroid, speedBonus } from "../src/js/scoring.js";
 import { MAPS, initMapsProperties } from "../src/js/data/maps.js";
 
 test("pointsForDistance on a 3000m map", () => {
@@ -16,10 +16,12 @@ test("pointsForDistance scales thresholds with map size", () => {
     assert.equal(pointsForDistance(70, 6000).points, 90);
 });
 
-test("levenshtein is the plain edit distance", () => {
-    assert.equal(levenshtein("narva", "narva"), 0);
-    assert.equal(levenshtein("narv", "narva"), 1);
-    assert.equal(levenshtein("kohat", "narva"), 5);
+test("editDistance counts a missing, extra, wrong or swapped letter as one edit", () => {
+    assert.equal(editDistance("narva", "narva"), 0);
+    assert.equal(editDistance("narv", "narva"), 1);
+    assert.equal(editDistance("kohat", "narva"), 5);
+    assert.equal(editDistance("khoat", "kohat"), 1);
+    assert.equal(editDistance("ab", "ba"), 1);
 });
 
 test("mapNameMatches tolerates case, spaces and small typos", () => {
@@ -42,6 +44,24 @@ test("mapNameMatches does not hand the points to a map a few typos away from the
     assert.equal(mapNameMatches("Kohat", "Kokan"), false);
     assert.equal(mapNameMatches("Kohat Toi", "Kokan"), false);
     assert.equal(mapNameMatches("Kokan", "Kokan"), true);
+});
+
+test("mapNameMatches gives no points for an answer that fits two maps equally well", () => {
+    // one typo from Kohat and from Kokan: hedging between two maps must not score for either
+    assert.equal(mapNameMatches("Kokat", "Kohat"), false);
+    assert.equal(mapNameMatches("Kokat", "Kokan"), false);
+    assert.equal(mapNameMatches("sugar", "Logar"), false);
+    assert.equal(mapNameMatches("Na Anvil", "Narva"), false);
+});
+
+test("mapNameMatches forgives swapped letters without handing the points to the map next to them", () => {
+    // as plain edits these were 2 typos from their map and from another one, so they scored for neither
+    const swapped = [["Khoat", "Kohat", "Chora"], ["Koaht", "Kohat", "Kokan"], ["Hraju", "Harju", "Chora"],
+        ["Navil", "Anvil", "Narva"], ["Ogrodok", "Gorodok", "Logar"], ["Koakn", "Kokan", "Kohat"]];
+    swapped.forEach(([answer, map, other]) => {
+        assert.equal(mapNameMatches(answer, map), true, `${answer} -> ${map}`);
+        assert.equal(mapNameMatches(answer, other), false, `${answer} -> ${other}`);
+    });
 });
 
 test("mapNameMatches cannot be gamed by listing several maps", () => {
@@ -110,4 +130,27 @@ test("penaltyPoints: 0 up to the last scoring step, then down to −50 at three 
 test("centroid is the plain average position", () => {
     assert.deepEqual(centroid([{ lat: -100, lng: 50 }]), { lat: -100, lng: 50 });
     assert.deepEqual(centroid([{ lat: 0, lng: 0 }, { lat: -100, lng: 300 }, { lat: -200, lng: 0 }]), { lat: -100, lng: 100 });
+});
+
+test("speedBonus: a quarter of the points once more, scaled by the share of time left", () => {
+    assert.equal(speedBonus(100, 1), 25);
+    assert.equal(speedBonus(100, 0.5), 13);
+    assert.equal(speedBonus(85, 0.5), 11);
+    assert.equal(speedBonus(60, 1), 15);
+    assert.equal(speedBonus(30, 1), 8);
+    assert.equal(speedBonus(0, 1), 0);
+    assert.equal(speedBonus(100, 0), 0);
+});
+
+test("speedBonus: the time left counts as 0–1, so an answer in the grace second gets nothing", () => {
+    assert.equal(speedBonus(100, -0.02), 0);
+    assert.equal(speedBonus(100, 1.01), 25);
+});
+
+test("rankMoves counts the speed bonus as part of the round", () => {
+    // before: B 150, A 140; A passes B only thanks to the bonus
+    assert.deepEqual(rankMoves([
+        { id: "A", score: 245, points: 90, bonus: 15 },
+        { id: "B", score: 240, points: 90, bonus: 0 },
+    ]), { A: "up", B: "down" });
 });

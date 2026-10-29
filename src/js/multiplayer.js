@@ -6,7 +6,7 @@ import { updateOffset, secondsUntil } from "./clock.js";
 import { copyText } from "./clipboard.js";
 import Preloader from "./preloader.js";
 import { findMap, basemapUrl } from "./data/maps.js";
-import { rankMoves } from "./scoring.js";
+import { rankMoves, bonusText } from "./scoring.js";
 import { CHAT_MAX, CHAT_GAP_MS, CHAT_HISTORY } from "./chatLimits.js";
 import { Teams, TEAM_COLORS, teamDot, teamName, formatPoints } from "./multiplayerTeams.js";
 
@@ -198,6 +198,8 @@ export default class Multiplayer {
             teams: Number($("#mpTeamCount").val()),
             penalty: $("#mpPenalty").val() === "on",
             decide: Number($("#mpDecide").val()),
+            // the server turns it off for chill and team play
+            speedBonus: $("#mpSpeedBonus").val() === "1",
         };
     }
 
@@ -275,6 +277,9 @@ export default class Multiplayer {
         this.watching = hello.type === "watch";
         this.active = true;
         this.retry = 0;
+        // per join, not per socket: a reconnect keeps it, or a running countdown falls back to the raw local clock
+        // until the first message (the whole outage if retries fail) and jumps by however far that clock is off
+        this.offset = null;
         $("body").addClass("mp-active");
         this.connect();
     }
@@ -282,7 +287,6 @@ export default class Multiplayer {
     connect() {
         const ws = new WebSocket(this.socketUrl());
         this.ws = ws;
-        this.offset = null;
         ws.onopen = () => {
             if (this.ws !== ws) return;
             this.retry = 0;
@@ -484,6 +488,9 @@ export default class Multiplayer {
         case "left":
             this.toast("info", "mp.left", { name: msg.name });
             break;
+        case "unready":
+            this.toast("info", "mp.unready");
+            break;
         case "joinable":
             // the invite link leads into an open lobby: the form is already there, only the look ends
             this.stop();
@@ -492,9 +499,6 @@ export default class Multiplayer {
             break;
         case "ended":
             this.onEnded(msg);
-            break;
-        case "unready":
-            this.toast("info", "mp.unready");
             break;
         case "shuffled":
             // the state with the new teams comes right after: onTeamChange tells the player
@@ -641,6 +645,9 @@ export default class Multiplayer {
             $("#mpPenalty").val(s.settings.penalty ? "on" : "off");
             $("#mpDecide").val(String(s.settings.decide));
         }
+        $("#mpSpeedBonus").val(s.settings.speedBonus ? "1" : "0");
+        // the speed bonus counts the time left of one's own answer: chill and team play have none
+        $("label[for=mpSpeedBonus], #mpSpeedBonus").prop("hidden", !timer || team !== "off");
         $("#mpSettingsSummary").text(this.describeSettings(s.settings));
         this.renderPlayers(s);
 
@@ -731,6 +738,8 @@ export default class Multiplayer {
             return;
         }
         if (s.phase !== "round") return;
+        // a new round's state comes just before its round message: until that, the last reveal stays as it is
+        if (s.round !== this.roundIndex) return;
         const online = s.players.filter(p => p.connected);
         const text = i18next.t("mp.waitingForPlayers", {
             ns: "common",
@@ -738,6 +747,22 @@ export default class Multiplayer {
             total: online.length,
         });
         $("#mpStatus").text(text).prop("hidden", !this.answered && !this.watching);
+        // locked in, and on the big screen all along: the standings so far instead of the chips
+        const standings = this.answered || this.watching;
+        const $list = $("#mpRanking");
+        const shown = standings && $list.prop("hidden");
+        if (standings) {
+            // team play ranks the teams, like the reveal
+            const teamPlay = Boolean(s.settings.team);
+            const rows = teamPlay
+                ? [...new Set(s.players.map(p => p.team))].map(team => ({ id: team, team, name: teamName(team), score: s.teamScores[team] ?? 0 }))
+                : [...s.players];
+            this.renderRanking($list, rows.sort((a, b) => b.score - a.score), [], {}, teamPlay ? this.myTeam() : this.me);
+            this.markRanking(s);
+        }
+        $list.prop("hidden", !standings);
+        // just shown: the own line in view, not where the last reveal was scrolled to (later states keep the place)
+        if (shown) this.showOwnLine($list);
     }
 
     /**
@@ -908,7 +933,7 @@ export default class Multiplayer {
 
     startCountdown(deadline) {
         clearInterval(this.countdown);
-        $("#timerWrapper").prop("hidden", !deadline);
+        $("#timerWrapper").prop("hidden", !deadline).toggleClass("bonus", Boolean(this.state.settings.speedBonus));
         if (!deadline) return;
 
         const tick = () => {
@@ -946,12 +971,13 @@ export default class Multiplayer {
         // before any map sizing: on the big screen the reveal gives the map most of the width
         $("body").addClass("mp-reveal");
 
-        // fresh = we missed the round (reconnect straight into reveal)
-        const fresh = app.currentGuess?.url !== solution.url;
+        // fresh = we missed the round (reconnect or watch straight into reveal); roundIndex is ours alone and reset by
+        // stop(), app.currentGuess may still hold a singleplayer round on the same image
+        const fresh = msg.index !== this.roundIndex || app.currentGuess?.url !== solution.url;
         // mapFinder never drew the map during the round (even if activeMap happens to be the right one)
         const needsMap = fresh || app.selectedMode === "mapFinder" || !mm.activeMap
             || mm.activeMap.name.toLowerCase() !== solution.map.toLowerCase();
-        app.currentGuess = { ...solution, submitter: fresh ? null : app.currentGuess.submitter };
+        app.currentGuess = solution;
 
         $("#gameWrapper").removeClass("no-map");
         const mapShown = needsMap ? app.setupMap() : Promise.resolve();
@@ -962,6 +988,7 @@ export default class Multiplayer {
         }
         // a next round announced from now on waits for these (fresh implies needsMap)
         if (needsMap) this.visible = Promise.all([mapShown, hintShown]);
+        $("#round").text(`${msg.index + 1}/${msg.total}`);
         mm.invalidateSize();
 
         const mine = msg.results.find(r => r.id === this.me);
@@ -1001,7 +1028,7 @@ export default class Multiplayer {
         const points = msg.teams?.find(t => t.id === this.myTeam())?.points ?? mine?.points;
         if (mine) {
             $("#dist").text(mine.distance === null ? "—" : app.formatDistance(mine.distance));
-            $("#points").text(points);
+            $("#points").text(points + bonusText(mine.bonus));
             $("#text").css("visibility", "visible");
         }
         const mapLabel = solution.map.charAt(0).toUpperCase() + solution.map.slice(1);
@@ -1014,11 +1041,30 @@ export default class Multiplayer {
         // team play ranks the teams; round 1 has no places to leave: everybody started at 0
         const rows = msg.teams ? msg.teams.map(t => ({ ...t, team: t.id, name: teamName(t.id) })) : msg.results;
         this.renderRanking($("#mpRanking"), rows, [], msg.index > 0 ? rankMoves(rows) : {}, msg.teams ? this.myTeam() : this.me);
+        // the state of the reveal came just before it
+        this.markRanking(this.state);
         $("#mpRanking").prop("hidden", false);
 
         app.INPUT_GUESS.prop("hidden", true);
         app.BUTTON_GUESS.prop("hidden", true);
         this.renderStatus();
+        // a new order: the own line in view again, wherever the list was scrolled to while waiting. Last, once the
+        // buttons are settled: on phones they decide how high the list is
+        this.showOwnLine($("#mpRanking"));
+    }
+
+    /**
+     * Scrolls a ranking that just came up so the own line is in the middle of it, or the list starts at the top when
+     * the own line is near it anyway (and on the big screen, which has none)
+     */
+    showOwnLine($list) {
+        const list = $list[0];
+        list.scrollTop = 0;
+        const me = list.querySelector(".me");
+        if (!me) return;
+        const top = me.getBoundingClientRect().top - list.getBoundingClientRect().top;
+        // the browser keeps it between 0 and the end
+        list.scrollTop = top - (list.clientHeight - me.offsetHeight) / 2;
     }
 
     /**
@@ -1052,7 +1098,8 @@ export default class Multiplayer {
     addPlayerMarker(result, options = {}) {
         const mm = this.app.minimap;
         const label = document.createElement("span");
-        label.textContent = `${result.name} ${formatPoints(result.points)}`;
+        // the sum only, with ⚡ for a bonus: the tag stays short, the ranking has the breakdown
+        label.textContent = `${result.name} ${formatPoints(result.points + (result.bonus ?? 0))}${result.bonus ? "⚡" : ""}`;
         // team play: the team's color in front of the name
         if (result.team !== undefined) label.prepend(teamDot(result.team)[0]);
         return new guessMarker(this.toMap(result), { draggable: false, ...options }, mm)
@@ -1139,11 +1186,19 @@ export default class Multiplayer {
         else $("#mpPlayers").empty().append(s.players.map(item));
         $("#mpPlayers").prop("hidden", teamPlay);
         $("#mpTeamList").prop("hidden", !teamPlay);
-        // the reveal ranking hides the chips (lobby.scss), so while the next round loads it carries the marks itself
+        this.markRanking(s);
+    }
+
+    /**
+     * The ranking hides the chips (lobby.scss), so it carries what they show itself: the marks, in front of the name
+     * (the ranking cuts long names off with an ellipsis, which would hide a mark behind them), and who dropped out
+     */
+    markRanking(s) {
         $("#mpRanking li").each((_, li) => {
             const p = s.players.find(x => x.id === li.dataset.id);
-            // in front of the name: the ranking cuts long names off with an ellipsis, which would hide a mark behind them
-            if (p) $(li).find(".name").text([this.loadMark(s, p), p.name].filter(Boolean).join(" "));
+            if (!p) return;
+            const name = [this.doneMark(s, p) ? "✓" : "", this.loadMark(s, p), p.name].filter(Boolean).join(" ");
+            $(li).toggleClass("offline", !p.connected).find(".name").text(name);
         });
     }
 
@@ -1166,6 +1221,9 @@ export default class Multiplayer {
 
     renderRanking($list, rows, winners = [], moves = {}, mine = this.me) {
         $list.empty();
+        // the big screen sizes the lines by their number (lobby.scss); the standings while a round runs have no
+        // +points or moves yet, so their columns go
+        $list.css("--rows", rows.length).toggleClass("standings", rows.every(r => r.points === undefined));
         rows.forEach((row, i) => {
             const move = moves[row.id];
             // always there, empty without a move: the columns of every ranking line up
@@ -1179,7 +1237,7 @@ export default class Multiplayer {
                     $move,
                     // team play: the team's color in front of its name
                     $("<span class=\"name\">").text(row.name).prepend(row.team === undefined ? null : teamDot(row.team)),
-                    $("<span class=\"points\">").text(row.points === undefined ? "" : formatPoints(row.points)).toggleClass("negative", row.points < 0),
+                    $("<span class=\"points\">").text(row.points === undefined ? "" : formatPoints(row.points) + bonusText(row.bonus)).toggleClass("negative", row.points < 0),
                     $("<span class=\"score\">").text(row.score),
                     // team play's final: who played in the team
                     row.members ? $("<span class=\"members\">").text(row.members.join(", ")) : null
@@ -1252,17 +1310,18 @@ export default class Multiplayer {
         if (open && matchMedia("(pointer: fine)").matches) $("#mpChatInput").trigger("focus");
     }
 
-    describeSettings({ mode, timer, rounds, next, keepCode, team, teams, penalty, decide }) {
+    describeSettings({ mode, timer, rounds, next, keepCode, speedBonus, team, teams, penalty, decide }) {
         const t = (key, options) => i18next.t(key, { ns: "common", ...options });
         const modeLabel = mode === "classic" ? t("menu.classic") : t("menu.findMap");
         const timerLabel = { 0: t("timer.chill"), 60: t("timer.timedOption") }[timer] ?? `${t("timer.rush")} ${timer}\u00a0s`;
         // a no-break space keeps "10 s" together when the summary wraps
         const nextLabel = next ? ` · ${t("mp.settings.next")}: ${t("mp.nextAuto")} ${next}\u00a0s` : "";
         const codeLabel = keepCode ? ` · ${t("mp.code")}: ${t("mp.codeKeep")}` : "";
+        const bonusLabel = speedBonus ? ` · ⚡ ${t("timer.speedBonus")}` : "";
         const penaltyLabel = team === "sum" && penalty ? ` · ${t("mp.settings.penalty")}` : "";
         const decideLabel = team === "leader" ? ` · ${t("mp.settings.decide")} ${decide}\u00a0s` : "";
         const teamLabel = team ? ` · ${t(`mp.teamModes.${team}`)} · ${t("mp.teamCount", { n: teams })}${penaltyLabel}${decideLabel}` : "";
-        return `${modeLabel} · ${timerLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${codeLabel}${teamLabel}`;
+        return `${modeLabel} · ${timerLabel}${bonusLabel} · ${rounds} ${t("mp.rounds")}${nextLabel}${codeLabel}${teamLabel}`;
     }
 
     showEntry() {

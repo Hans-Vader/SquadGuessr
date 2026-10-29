@@ -1,5 +1,5 @@
 import { randomUUID, randomInt } from "node:crypto";
-import { scoreAnswer, mapSize, penaltyPoints, MAX_PENALTY, centroid } from "../src/js/scoring.js";
+import { scoreAnswer, mapSize, penaltyPoints, MAX_PENALTY, centroid, speedBonus } from "../src/js/scoring.js";
 import { CHAT_MAX, CHAT_GAP_MS, CHAT_HISTORY } from "../src/js/chatLimits.js";
 import { cleanName, cleanText, validSettings, validGuesses, validAnswer } from "./validate.js";
 
@@ -464,13 +464,17 @@ export class Session {
         }
         const size = mapSize(this.guesses[this.round].map);
         // kept on the map like the client's marker: absurd coordinates would break the reveal on every screen
+        // a map name is cut like the input field does (maxlength in game.html), not rejected: the client has
+        // already locked the field, so a rejected answer would leave the player unable to answer this round
         const answer = this.settings.mode === "classic"
             ? { lat: clamp(msg.lat, -size, 0), lng: clamp(msg.lng, 0, size), mapName: null }
-            : { lat: null, lng: null, mapName: msg.mapName };
+            : { lat: null, lng: null, mapName: msg.mapName.slice(0, 40) };
         const scored = scoreAnswer(this.settings.mode, this.guesses[this.round], answer);
         // Sum with minus points: beyond the last scoring step a guess costs the team points
         if (this.settings.team === "sum" && this.settings.penalty) scored.points += penaltyPoints(scored.distance, size);
-        player.answers[this.round] = { ...answer, ...scored };
+        // timed by the server's own clock against the deadline, so no client can claim to have been quick
+        const bonus = this.settings.speedBonus ? speedBonus(scored.points, (this.deadline - this.now()) / (this.settings.timer * 1000)) : 0;
+        player.answers[this.round] = { ...answer, ...scored, bonus };
         this.catchUp(player);
         this.broadcastState();
         this.sendTeamGuesses(player.team);
@@ -518,7 +522,7 @@ export class Session {
         // with minus points giving no answer must never beat a bad guess; whoever is gone for good adds nothing
         const missed = this.settings.team === "sum" && this.settings.penalty ? -MAX_PENALTY : 0;
         this.players.forEach(p => {
-            if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: this.isPresent(p) ? missed : 0 };
+            if (!p.answers[this.round]) p.answers[this.round] = { lat: null, lng: null, mapName: null, distance: null, points: this.isPresent(p) ? missed : 0, bonus: 0 };
         });
         if (this.settings.team === "leader") this.startDecide();
         else this.reveal();
@@ -567,7 +571,7 @@ export class Session {
         this.phase = "reveal";
         this.deadline = null;
         this.nextAt = this.settings.next ? this.now() + this.settings.next * 1000 : null;
-        this.players.forEach(p => { p.score += p.answers[this.round].points; });
+        this.players.forEach(p => { p.score += p.answers[this.round].points + p.answers[this.round].bonus; });
         if (this.settings.team) {
             this.teamRounds[this.round] = this.teamsInPlay().map(team => this.teamResult(team));
             this.teamRounds[this.round].forEach(r => { this.teamScores[r.id] = (this.teamScores[r.id] ?? 0) + r.points; });
@@ -797,7 +801,7 @@ export class Session {
             type: "reveal",
             index: this.round,
             total: this.guesses.length,
-            solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng },
+            solution: { map: g.map, url: g.url, lat: g.lat, lng: g.lng, submitter: g.submitter },
             results,
         };
         if (!this.settings.team) return msg;
@@ -998,10 +1002,12 @@ export class Session {
     }
 }
 
-function pickSettings({ mode, timer, rounds, next = 0, keepCode = false, team = "off", teams = 2, penalty = false, decide = 20 }) {
-    // without teams the settings stay what they were before team play: older clients and the plain game see no change
-    if (team === "off") return { mode, timer, rounds, next, keepCode };
-    return { mode, timer, rounds, next, keepCode, team, teams, penalty, decide };
+function pickSettings({ mode, timer, rounds, next = 0, keepCode = false, speedBonus = false, team = "off", teams = 2, penalty = false, decide = 20 }) {
+    // without teams the settings stay what they were before team play: older clients and the plain game see no change.
+    // The speed bonus counts the time left, so chill has none; team play has none either: a midpoint or a leader's
+    // pick was answered at nobody's time
+    if (team === "off") return { mode, timer, rounds, next, keepCode, speedBonus: speedBonus && timer > 0 };
+    return { mode, timer, rounds, next, keepCode, speedBonus: false, team, teams, penalty, decide };
 }
 
 function clamp(value, min, max) {

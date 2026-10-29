@@ -17,6 +17,8 @@
         "takeYourTime": "Take your time",
         "oneMinutePerGuess": "1mn per guess",
         "fifteenSecondsPerGuess": "15s per guess",
+        "speedBonus": "Speed bonus",
+        "speedBonusHint": "Quick answers: up to 25% extra points",
         "buttons": {
             "back": "BACK",
             "play": "PLAY",
@@ -116,6 +118,7 @@
         "joined": "{{name}} joined the lobby",
         "kicked": "{{name}} was kicked from the lobby",
         "left": "{{name}} left the lobby",
+        "unready": "The host changed the settings: press READY again",
         "resume": {
             "lobby": "You are still in lobby {{code}}",
             "game": "Game {{code}} is still running · round {{round}}/{{total}}"
@@ -188,7 +191,7 @@
         "guide": {
             "title": "How to submit",
             "screenshotMode": "Turn on Squad's screenshot mode first (eye icon at the bottom of the main menu), so the compass is not in your screenshot.",
-            "freeCamera": "Free camera: start Squad's Firing Range, open the console, load a map with AdminChangeLayer <layer> and press Shift+P for the admin camera.",
+            "freeCamera": "Free camera: open the console (works right in the main menu), load a map with AdminChangeLayer <layer> and press Shift+P for the admin camera.",
             "screenshot": "Take a full screenshot, e.g. with Steam (F12), and copy it to the clipboard in Steam's screenshot manager.",
             "submit": "Choose the map, paste the screenshot here (Ctrl+V), drag the square onto the best part and click on the map where it was taken. Then click ADD.",
             "upload": "Click DOWNLOAD ZIP and upload the ZIP in the suggestions channel on",

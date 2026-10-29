@@ -14,7 +14,7 @@
 
 1. Turn on Squad's **screenshot mode** first, so the compass is not in your screenshot: click the eye icon at the bottom of the screen in the main menu.
 
-   For a free camera, start Squad's Firing Range (training mode), open the console and load the map you want with `AdminChangeLayer <layer>`, e.g. `AdminChangeLayer Narva_AAS_v1`. You are admin there, so **Shift+P** switches to the admin camera and you can fly anywhere on the map.
+   For a free camera, open the console (works right in the main menu) and load the map you want with `AdminChangeLayer <layer>`, e.g. `AdminChangeLayer Narva_AAS_v1`. You are admin there, so **Shift+P** switches to the admin camera and you can fly anywhere on the map.
 
 2. Take a full screenshot ingame. Any screenshot tool works: you choose the part to show later in SquadGuessr, which also scales it to the right size. The easiest is Steam's own: press **F12** (Steam's default key), watch your screenshots in Steam and copy the one you want to the clipboard, ready to paste with Ctrl+V in **step 4**. Please consider taking your screenshots at quite high graphics settings for best UX on SquadGuessr.
 

@@ -6,12 +6,13 @@ import SquadSettings from "./squadSettings.js";
 import packageInfo from "../../package.json";
 import i18next from "i18next";
 import { solutionMarker } from "./guessMarker.js";
-import { pointsForDistance, scoreAnswer, distance } from "./scoring.js";
+import { pointsForDistance, scoreAnswer, distance, speedBonus, bonusText } from "./scoring.js";
 import Multiplayer from "./multiplayer.js";
 import Submit from "./submit.js";
 import Review from "./review.js";
 import { copyText } from "./clipboard.js";
 import { retryDelay } from "./preloader.js";
+import { secondsUntil } from "./clock.js";
 import "./libs/leaflet-measure-path.js";
 
 /**
@@ -193,7 +194,7 @@ export default class SquadGuessr {
     copyResults() {
         let text = `\u200B\n\u200B\n🏆 I just scored **${this.score} points** in SquadGuessr! 🏆\n`;
 
-        this.gameData.forEach((guess, index) => { text += `  🔸*Guess#${index + 1}: ${guess.points} points*\n`; });
+        this.gameData.forEach((guess, index) => { text += `  🔸*Guess#${index + 1}: ${guess.points} points${bonusText(guess.bonus)}*\n`; });
         text = text + "\nThink you can beat me? Try now: https://squadguessr.app 🗺️";
 
         copyText(text).then(() => {
@@ -230,10 +231,10 @@ export default class SquadGuessr {
     }
 
     setupGuessInput() {
-        // Enable/disable guess button based on input text
+        // Enable/disable guess button based on input text, never again once the round is scored
         this.INPUT_GUESS.on("input", () => {
             const hasText = this.INPUT_GUESS.val().trim() !== "";
-            this.BUTTON_GUESS.prop("disabled", !hasText);
+            this.BUTTON_GUESS.prop("disabled", !hasText || Boolean(this.solutionMarker));
         });
 
         // Handle Enter key to submit
@@ -271,6 +272,7 @@ export default class SquadGuessr {
         this.gameData = gameData;
         this.gamePhase = 0;
         this.score = 0;
+        this.bonusOn = Number(this.selectedTimer) > 0 && $("#speedBonus").prop("checked");
 
         $("#totalPoints").html(0);
         // a previous game (or a multiplayer round) may have hidden or disabled the map name input
@@ -333,8 +335,9 @@ export default class SquadGuessr {
             $("#gameWrapper").removeClass("no-map");
         }
 
+        // a guess placed before the hint loaded has already ended the round: no countdown on its solution
         this.setupHint().then(() => {
-            if (this.selectedTimer > 0) this.startTimeAttackTimer(this.selectedTimer);
+            if (this.selectedTimer > 0 && !this.solutionMarker) this.startTimeAttackTimer(this.selectedTimer);
         });
 
     }
@@ -426,8 +429,11 @@ export default class SquadGuessr {
 
     handleGuess() {
         if (this.mp.active) return this.mp.submitAnswer();
-        if (!this.currentGuess) return;
+        // a round shows its solution once it is scored: a timeout or a re-enabled button cannot score it again
+        if (!this.currentGuess || this.solutionMarker) return;
 
+        // share of the round's time still left, for the speed bonus: none before the timer started or after it ran out
+        this.timeLeft = this.timerInterval ? (this.roundEndsAt - Date.now()) / (this.selectedTimer * 1000) : 0;
         this.stopTimer();
 
         if (this.selectedMode === "mapFinder") {
@@ -444,15 +450,16 @@ export default class SquadGuessr {
 
     handleMapGuess() {
         const { points } = scoreAnswer("mapFinder", this.currentGuess, { mapName: this.INPUT_GUESS.val() });
+        const bonus = this.roundBonus(points);
         const icon = points ? "✅" : "❌";
 
         let mapName = this.currentGuess.map;
         mapName = mapName.charAt(0).toUpperCase() + mapName.slice(1);
 
-        $("#points").html(points);
+        $("#points").html(points + bonusText(bonus));
         $("#mapName").html(icon + " " + mapName).fadeIn();
         this.gameData[this.gamePhase - 1].points = points;
-        this.addToTotalPoints(points);
+        this.addToTotalPoints(points + bonus);
         this.BUTTON_GUESS.prop("disabled", true);
         this.BUTTON_NEXT.prop("disabled", false);
         $("#gameWrapper").removeClass("no-map");
@@ -505,7 +512,7 @@ export default class SquadGuessr {
             const $img = $(`
                 <div class="map-thumbnail">
                     <img src="/api${guess.url}" alt="Guess Image">
-                    <span class="roundScore">+${guess.points}</span>
+                    <span class="roundScore">+${guess.points}${bonusText(guess.bonus)}</span>
                 </div>
             `);
             $grid.append($img);
@@ -514,12 +521,19 @@ export default class SquadGuessr {
 
     updateFinalScore() {
         $("#scoreValue").html(this.score);
-        this.saveTopScore(this.selectedMode, this.score);
+        this.saveTopScore(this.selectedMode, this.recordScore());
+    }
+
+    /**
+     * The game's score without the speed bonus: records stay comparable with the games played without it
+     */
+    recordScore() {
+        return this.score - this.gameData.reduce((sum, guess) => sum + (guess.bonus ?? 0), 0);
     }
 
     checkNewRecord() {
-        if (this.score > this.topScores[this.selectedMode]) {
-            this.topScores[this.selectedMode] = this.score;
+        if (this.recordScore() > this.topScores[this.selectedMode]) {
+            this.topScores[this.selectedMode] = this.recordScore();
             $(".new-record").fadeIn();
         } else {
             $(".new-record").hide();
@@ -529,22 +543,24 @@ export default class SquadGuessr {
     // ===== TIMER MANAGEMENT =====
 
     startTimeAttackTimer(duration) {
-        let remaining = duration;
-        $("#timerWrapper").prop("hidden", false);
+        // the display and the round's end go by the same clock as the speed bonus: counted ticks would fall behind
+        // whenever the browser pauses timers (an app in the background), and show time the bonus no longer has
+        this.roundEndsAt = Date.now() + duration * 1000;
+        $("#timerWrapper").prop("hidden", false).toggleClass("bonus", this.bonusOn);
 
         if (this.timerInterval) clearInterval(this.timerInterval);
 
-        this.updateTimerDisplay(remaining);
+        this.updateTimerDisplay(duration);
 
         this.timerInterval = setInterval(() => {
-            remaining--;
+            const remaining = secondsUntil(this.roundEndsAt, 0, Date.now());
             this.updateTimerDisplay(remaining);
 
             if (remaining <= 0) {
                 this.stopTimer();
                 this.onTimeAttackEnd();
             }
-        }, 1000);
+        }, 250);
     }
 
     updateTimerDisplay(seconds) {
@@ -645,6 +661,8 @@ export default class SquadGuessr {
         });
         document.querySelector(`[data-timer="${timer}"]`)?.classList.add("selected");
         this.selectedTimer = timer;
+        // the speed bonus counts the time left: chill has none
+        $("#speedBonusOption").prop("hidden", Number(timer) === 0);
     }
 
     setButtonLoading(button, isLoading) {
@@ -705,8 +723,18 @@ export default class SquadGuessr {
         this.focusOnSolution(solutionLatLng);
         const distance = this.getSolutionDistance();
         const pointsWon = this.getPoints(distance);
-        this.addToTotalPoints(pointsWon);
-        this.displaySolutionResults(distance, pointsWon);
+        const bonus = this.roundBonus(pointsWon);
+        this.addToTotalPoints(pointsWon + bonus);
+        this.displaySolutionResults(distance, pointsWon, bonus);
+    }
+
+    /**
+     * The speed bonus on this round's points (0 without the option), kept with the round for the results
+     */
+    roundBonus(points) {
+        const bonus = this.bonusOn ? speedBonus(points, this.timeLeft) : 0;
+        this.gameData[this.gamePhase - 1].bonus = bonus;
+        return bonus;
     }
 
 
@@ -718,9 +746,9 @@ export default class SquadGuessr {
     }
 
 
-    displaySolutionResults(distance, points) {
+    displaySolutionResults(distance, points, bonus) {
         $("#dist").html(this.formatDistance(distance));
-        $("#points").html(points);
+        $("#points").html(points + bonusText(bonus));
         $("#text").css("visibility", "visible");
     }
 

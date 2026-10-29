@@ -67,10 +67,11 @@ export function cleanText(text, max) {
 }
 
 export function validSettings(s) {
-    // an older cached client sends no next, no keepCode and nothing about teams
+    // an older cached client sends no next, no keepCode, no speedBonus and nothing about teams
     return Boolean(s) && MODES.includes(s.mode) && TIMERS.includes(s.timer) && ROUNDS.includes(s.rounds)
         && (s.next === undefined || NEXTS.includes(s.next))
         && (s.keepCode === undefined || typeof s.keepCode === "boolean")
+        && (s.speedBonus === undefined || typeof s.speedBonus === "boolean")
         && validTeamSettings(s);
 }
 
@@ -97,6 +98,6 @@ export function validGuess(g) {
 }
 
 export function validAnswer(msg, mode) {
-    if (mode === "mapFinder") return typeof msg.mapName === "string" && msg.mapName.length <= 40;
+    if (mode === "mapFinder") return typeof msg.mapName === "string";
     return Number.isFinite(msg.lat) && Number.isFinite(msg.lng);
 }

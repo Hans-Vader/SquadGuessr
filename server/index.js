@@ -10,13 +10,13 @@ const HEARTBEAT_MS = 30 * 1000;
 const MAX_SESSIONS = 1000;
 // far above any burst a real client needs; a client that stops reading must not make us queue replies forever
 const MAX_BUFFERED = 64 * 1024;
-// what a client may send first on a socket, besides "create"
-const ENTRY = ["join", "watch", "check", "peek"];
 // a real client sends a few messages a second at most, each one a click or an event (ready, answer, a chat line):
 // a connection may send MSG_BURST at once and MSG_PER_S more every second. Whoever goes beyond is cut off before one
 // more of their messages is read; a real client recovers from that best, it reconnects and gets the whole state again
 export const MSG_BURST = 20;
 export const MSG_PER_S = 5;
+// what a client may send first on a socket, besides "create"
+const ENTRY = ["join", "watch", "check", "peek"];
 
 /**
  * Multiplayer session server: routes socket messages to Session instances
