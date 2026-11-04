@@ -967,6 +967,7 @@ export default class Multiplayer {
         // the reveal shows everyone's guesses as markers of their own
         this.teams.clear();
         app.stopTimer();
+        app.closeImageOverlay();
         app.selectedMode = this.state.settings.mode;
         // before any map sizing: on the big screen the reveal gives the map most of the width
         $("body").addClass("mp-reveal");
