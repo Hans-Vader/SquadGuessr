@@ -204,6 +204,7 @@
         "remove": "Remove",
         "removeImage": "Remove image",
         "edit": "Edit",
+        "existingGuess": "Existing guess",
         "choice": {
             "submit": "SUBMIT",
             "review": "REVIEW"
@@ -228,6 +229,12 @@
         "duplicates": "{{n}} duplicate guesses skipped",
         "exportFailed": "Export failed",
         "confirmClear": "Clear the review? Decisions that were not exported will be lost.",
+        "markers": {
+            "open": "Undecided guess",
+            "accepted": "Accepted guess",
+            "rejected": "Rejected guess",
+            "invalid": "Invalid guess"
+        },
         "buttons": {
             "add": "ADD ZIP",
             "clear": "CLEAR",
